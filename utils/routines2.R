@@ -1,11 +1,3 @@
-#########################
-# Some functions
-#########################
-
-#--------------------------------------------------------------------------------------------------------------------------
-# Laplace
-#--------------------------------------------------------------------------------------------------------------------------
-
 # Probability Density Function: location parameter mu and scale parameter sigma
 dlap = function(x,mu=0,sigma=1,log=FALSE){
   log.den = - log(2) - log(sigma) - abs(x-mu)/sigma
@@ -362,25 +354,3 @@ GDMLE <- function(init, dist, data, method = "BB",
   out <- list(par = par, maxiter = iter, gradient = grad.par1)
   return(out)
 }
-  
-###########################################################################################
-# Function to calculate the normal confidence intervals
-###########################################################################################
-# FUN   : minus log-likelihood function to be used to calculate the confidence intervals
-# par   : maximum likelihood estimator of the parameters of interest in the log scale for positive parameters
-# level : confidence level
-
-Conf.Int <- function(level=0.95, par, dist, times, status, X, Xt){
-  sd.int <- abs(qnorm(0.5*(1-level)))
-  HESS <- hessLLS(par, dist, times, status, X, Xt)
-  Fisher.Info <- -solve(HESS)
-  Sigma <- sqrt(diag(Fisher.Info))
-  U<- par + sd.int*Sigma
-  L<- par - sd.int*Sigma
-  C.I <- cbind(L,U,par, Sigma)
-  names.row <- paste0("par", seq_along(1:length(par)))
-  rownames(C.I)<- names.row
-  colnames(C.I)<- c("Lower","Upper", "MLE", "Std. Error")
-  return(C.I)
-}
-
