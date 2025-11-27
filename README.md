@@ -1,7 +1,7 @@
 # GHBVS
 Code for: 
 
-> Chen, Y., Griffin, J. and Rubio, F.J. (2025). Bayesian Variable and Hazard Structure Selection for General Hazard Model. Submitted.
+> Chen, Y., Griffin, J. and Rubio, F.J. (2025). Bayesian variable and hazard structure selection in the General Hazard model. Submitted.
 
 - `simulation.R`: Reproducing the simulation results in the paper.
 - `flchain.R`: Reproducing the FLC application.
