@@ -126,75 +126,6 @@ ADS.proposal.aft <- function(gam.old, gam.candid=NULL,...){
   return(list(gam.proposal = gam.candid, lograt = log.q))
 }
 
-
-ADS.proposal <- function(gam.old, gam.candid=NULL,...){
-  gam.candid = gam.old
-  # 0: (0,0), 1: (1,0)/t, 2: (0,1)/p, 3: (1,1)/tp
-  # (theta,eta) / (alpha,beta) / (time,PH) / (xt,x)
-  if (sum(gam.old) == 0){
-    move = "A/D"
-  }else if (all(gam.old == 1) | all(gam.old == 2) | all(gam.old == 3)){
-    move = sample(c("A/D","C"),1,prob=c(0.5, 0.5))
-  }else{
-    move = sample(c("A/D","C","S"),1,prob=c(0.5, 0.25, 0.25))
-  }
-  current_move <<- move
-  
-  # propose move
-  if (move == "A/D"){  # Add or Delete Move (between 0 and >0, model size +1 or -1)
-    idx = sample(1:length(gam.old), 1)
-    if (gam.candid[idx] > 0){
-      gam.candid[idx] = 0
-      current_move <<- "D"
-      log.q = -log(3)
-    }else{
-      gam.candid[idx] = sample(c(1:3),1)
-      current_move <<- "A"
-      log.q = log(3)
-    }
-  }else if (move == "C"){  # Change Move (between 1,2,3, model size unchanged)
-    if (length(which(gam.candid != 0)) == 1){
-      idx = which(gam.candid != 0)
-      gam.candid[idx] = sample(c(1:3)[-gam.candid[idx]],1)
-    }else{
-      idx = sample(which(gam.candid != 0), 1)
-      gam.candid[idx] = sample(c(1:3)[-gam.candid[idx]],1)
-    }
-    log.q = 0
-  }else if (move == "S"){  # Swap Move (between two variables, might change model size)
-    idx1 = sample(c(1:length(gam.candid)),1)
-    gam.1 = gam.candid[idx1]
-    q_prop = sum(gam.candid != gam.1)
-    idx2 = sample(c(1:length(gam.candid))[gam.candid!= gam.1], 1)
-    gam.2 = gam.candid[idx2]
-    if (gam.1+gam.2 != 3){
-      gam.candid[idx1] = gam.2
-      gam.candid[idx2] = gam.1
-    }else if (gam.1 == 1 | gam.1 == 2){
-      a = sample(c(T,F),1)
-      if (a){
-        gam.candid[idx1] = 0
-        gam.candid[idx2] = 3
-      }else{
-        gam.candid[idx1] = 3
-        gam.candid[idx2] = 0
-      }
-    }else if (gam.1 == 0 | gam.1 == 3){
-      a = sample(c(T,F),1)
-      if (a){
-        gam.candid[idx1] = 1
-        gam.candid[idx2] = 2
-      }else{
-        gam.candid[idx1] = 2
-        gam.candid[idx2] = 1
-      }
-    }
-    q_reverse = sum(gam.candid != gam.candid[idx1])
-    log.q = log(q_reverse) - log(q_prop)
-  }
-  return(list(gam.proposal = gam.candid, lograt = log.q))
-}
-
 BVS.MCMC <- function(model.par, mcmc.par, 
                      gprior.mat = "LCM",gamprior = "default", 
                      verbose = T){
@@ -238,14 +169,9 @@ BVS.MCMC <- function(model.par, mcmc.par,
   gam.param <<- model.par$gam.param
   #marg.liks <<- matrix(NA, nrow=0, ncol=3)
   #colnames(marg.liks) <<- c("model","MAP","marg.lik")
-  
 
   ##### Choosing sampler for gamma #####
-  if (gam.sampler == "ADS"){
-    gam.proposal = ADS.proposal
-  }else if (gam.sampler == "ADS.aft"){
-    gam.proposal = ADS.proposal.aft
-  }
+  gam.proposal = ADS.proposal.aft
   
   ##### Choosing sampler for g #####
   if (is.null(g.sampler)){  # if g is not updated iteratively
@@ -271,7 +197,7 @@ BVS.MCMC <- function(model.par, mcmc.par,
     g.proposal = NULL
     acc.list = data.frame(matrix(NA, nrow=n.iter, ncol=n.chain))
     
-  }else{  # if updating g
+  }else{  # if updating g, OBSOLETE #
     model.dict <<- data.frame(matrix(NA, nrow=0, ncol=6))
     colnames(model.dict) <<- c("gam","g.theta","g.eta","g.aft","postprob","name")
     lr.t <<- inits$lr.t; lr.h <<- inits$lr.h; lr.a <<- inits$lr.a
@@ -313,7 +239,7 @@ BVS.MCMC <- function(model.par, mcmc.par,
       par.new = update$par
       acc.gam = update$acc
       
-      if (!is.null(g.proposal)){
+      if (!is.null(g.proposal)){ ### OBSOLETE, not in use ###
         if (g.sampler == "MALA"){
           # update g.theta #
           if (any(par.new$gam==1) | any(par.new$gam==3)){
@@ -591,3 +517,4 @@ prior.gam = function(par4, log=T, type = gamprior,
 #   
 #   return(as.integer(total_combinations))
 # }
+
