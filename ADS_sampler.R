@@ -1,128 +1,306 @@
 source("utils/routines2.R")
 source("utils/helper_functions.R")
 
-ADS.proposal.aft <- function(gam.old, gam.candid=NULL,...){
-  # 0: (0,0), 1: (1,0)/t, 2: (0,1)/p, 3: (1,1)/tp, 4: AFT
-  # (theta,eta) / (alpha,beta) / (time,PH) / (xt,x)
+# Helper: get move selection probability for a given model
+get_move_prob <- function(gam, move_type) {
+  haz <- gam2haz(gam)
   
-  gam.candid = gam.old
-  haz = gam2haz(gam.old)
-  if (haz == "Null"){  ## Null model ##
-    move = sample(c("A/D","A/D_aft"),1,prob=c(3/4, 1/4))
-  }else if (haz == "AH" | haz == "PH"){
-    if (all(gam.old == 1) | all(gam.old == 2)){  ## Full AH/PH ##
-      move = sample(c("A/D","C","C*"),1,prob=c(0.6, 0.2, 0.2))
-    }else{
-      move = sample(c("A/D","S","C","C*"),1,prob=c(0.4, 0.2, 0.2, 0.2))
+  if (haz == "Null") {
+    probs <- c("A_null" = 1.0)
+  } else if (haz == "AH" || haz == "PH") {
+    if (all(gam == 1) || all(gam == 2)) {
+      probs <- c("A/D" = 0.5, "C" = 0.25, "C*" = 0.25)
+    } else {
+      probs <- c("A/D" = 0.5, "S" = 0.1, "C" = 0.2, "C*" = 0.2)
     }
-  }else if (haz == "AFT"){
-    if (all(gam.old == 4)){  ## Full AFT ##
-      move = sample(c("A/D","C*"),1,prob=c(2/3, 1/3))
-    }else{
-      move = sample(c("A/D","S","C*"),1,prob=c(0.4, 0.2, 0.2))
+  } else if (haz == "AFT") {
+    if (all(gam == 4)) {
+      probs <- c("A/D" = 0.6, "C*" = 0.4)
+    } else {
+      probs <- c("A/D" = 0.6, "S" = 0.2, "C*" = 0.2)
     }
-  }else{
-    if (all(gam.old %in% c(0,3))){ ## GH with only 0 & 3 ##
-      if (all(gam.old == 3)){
-        move = sample(c("A/D_GH","C","C*"),1,prob=c(0.4, 0.4, 0.2))
-      }else{
-        move = sample(c("A/D_GH","S","C","C*"),1,prob=c(0.4, 0.2, 0.2, 0.2))
+  } else {  # GH
+    if (all(gam %in% c(0, 3))) {
+      if (all(gam == 3)) {
+        probs <- c("A/D_GH" = 0.5, "C" = 0.25, "C*" = 0.25)
+      } else {
+        probs <- c("A/D_GH" = 0.5, "S" = 0.15, "C" = 0.15, "C*" = 0.2)
       }
-    }else{  ## mixed GH ##
-      move = sample(c("A/D_GH","S","C"),1,prob=c(0.5, 0.25, 0.25))
+    } else {
+      probs <- c("A/D_GH" = 0.5, "S" = 0.25, "C" = 0.25)
+    }
+  }
+  
+  if (move_type %in% names(probs)) return(probs[move_type])
+  return(0)
+}
+
+# Helper: get valid indices for A/D_GH
+get_valid_idx <- function(gam) {
+  p <- length(gam)
+  tabgam <- table(factor(gam, levels = 0:4))
+  
+  if (tabgam["3"] == 1) {
+    remaining <- gam[gam != 3]
+    becomes_AH <- all(remaining %in% c(0,1)) && any(remaining == 1)
+    becomes_PH <- all(remaining %in% c(0,2)) && any(remaining == 2)
+    if (becomes_AH || becomes_PH) {
+      return((1:p)[-which(gam == 3)])
+    }
+  } else if (tabgam["3"]==0 && tabgam["1"]>1 && tabgam["2"]==1) {
+    return((1:p)[-which(gam == 2)])
+  } else if (tabgam["3"]==0 && tabgam["2"]>1 && tabgam["1"]==1) {
+    return((1:p)[-which(gam == 1)])
+  } else if (tabgam["3"]==0 && tabgam["2"]==1 && tabgam["1"]==1) {
+    return((1:p)[gam == 0])
+  }
+  return(1:p)
+}
+
+ADS.proposal.aft <- function(gam.old, gam.candid=NULL, ...){
+  
+  gam.candid <- gam.old
+  haz <- gam2haz(gam.old)
+  p <- length(gam.old)
+  
+  #===========================================================================
+  # MOVE SELECTION
+  #===========================================================================
+  if (haz == "Null") {
+    move <- "A_null"
+  } else if (haz == "AH" || haz == "PH") {
+    if (all(gam.old == 1) || all(gam.old == 2)) {
+      move <- sample(c("A/D","C","C*"), 1, prob=c(0.5, 0.25, 0.25))
+    } else {
+      move <- sample(c("A/D","S","C","C*"), 1, prob=c(0.5, 0.1, 0.2, 0.2))
+    }
+  } else if (haz == "AFT") {
+    if (all(gam.old == 4)) {
+      move <- sample(c("A/D","C*"), 1, prob=c(0.6, 0.4))
+    } else {
+      move <- sample(c("A/D","S","C*"), 1, prob=c(0.6, 0.2, 0.2))
+    }
+  } else {  # GH
+    if (all(gam.old %in% c(0,3))) {
+      if (all(gam.old == 3)) {
+        move <- sample(c("A/D_GH","C","C*"), 1, prob=c(0.5, 0.25, 0.25))
+      } else {
+        move <- sample(c("A/D_GH","S","C","C*"), 1, prob=c(0.5, 0.15, 0.15, 0.2))
+      }
+    } else {
+      move <- sample(c("A/D_GH","S","C"), 1, prob=c(0.5, 0.25, 0.25))
     }
   }
   
   current_move <<- move
-  # propose move
-  if (move == "A/D_GH"){  # Add or Delete Move (between 0 and >0, model size +1 or -1)
-    idx = sample(1:length(gam.old), 1)
-    if (gam.candid[idx] > 0){
-      gam.candid[idx] = 0
+  
+  #===========================================================================
+  # EXECUTE MOVE AND COMPUTE HASTINGS RATIO
+  #===========================================================================
+  
+  if (move == "A/D_GH") {
+    valid_idx <- get_valid_idx(gam.old)
+    n_valid <- length(valid_idx)
+    idx <- sample(valid_idx, 1)
+    
+    if (gam.candid[idx] > 0) {
+      # DELETE
+      gam.candid[idx] <- 0
       current_move <<- "D_GH"
-      log.q = -log(3)
-    }else{
-      gam.candid[idx] = sample(c(1:3),1)
+      new_haz <- gam2haz(gam.candid)
+      
+      # q_fwd = P(A/D_GH|old) × (1/n_valid)
+      # q_rev depends on new model type
+      if (new_haz == "Null") {
+        # Reverse is A_null: q_rev = 1 × (1/p) × (1/4)
+        q_fwd <- get_move_prob(gam.old, "A/D_GH") / n_valid
+        q_rev <- 1.0 / p / 4
+      } else {
+        # Reverse is A/D_GH add: q_rev = P(A/D_GH|new) × (1/n_valid_new) × (1/3)
+        n_valid_new <- length(get_valid_idx(gam.candid))
+        q_fwd <- get_move_prob(gam.old, "A/D_GH") / n_valid
+        q_rev <- get_move_prob(gam.candid, "A/D_GH") / n_valid_new / 3
+      }
+      log.q <- log(q_rev) - log(q_fwd)
+      
+    } else {
+      # ADD
+      new_val <- sample(1:3, 1)
+      gam.candid[idx] <- new_val
       current_move <<- "A_GH"
-      log.q = log(3)
+      
+      # q_fwd = P(A/D_GH|old) × (1/n_valid) × (1/3)
+      # q_rev = P(A/D_GH|new) × (1/n_valid_new)
+      n_valid_new <- length(get_valid_idx(gam.candid))
+      q_fwd <- get_move_prob(gam.old, "A/D_GH") / n_valid / 3
+      q_rev <- get_move_prob(gam.candid, "A/D_GH") / n_valid_new
+      log.q <- log(q_rev) - log(q_fwd)
     }
-  }else if (move == "A/D"){  # Add or Delete Move for non-GH model (Naive ADS)
-    idx = sample(1:length(gam.old), 1)
-    if (gam.candid[idx] > 0){
-      gam.candid[idx] = 0
+    
+  } else if (move == "A/D") {
+    idx <- sample(1:p, 1)
+    
+    if (gam.candid[idx] > 0) {
+      # DELETE
+      gam.candid[idx] <- 0
       current_move <<- "D"
-      log.q = 0
-    }else{
-      gam.candid[idx] = c(1,2,4)[haz == c("AH","PH","AFT")]
+      new_haz <- gam2haz(gam.candid)
+      
+      if (new_haz == "Null") {
+        # Reverse is A_null
+        q_fwd <- get_move_prob(gam.old, "A/D") / p
+        q_rev <- 1.0 / p / 4
+      } else {
+        # Reverse is A/D
+        q_fwd <- get_move_prob(gam.old, "A/D") / p
+        q_rev <- get_move_prob(gam.candid, "A/D") / p
+      }
+      log.q <- log(q_rev) - log(q_fwd)
+      
+    } else {
+      # ADD
+      gam.candid[idx] <- c(1,2,4)[haz == c("AH","PH","AFT")]
       current_move <<- "A"
-      log.q = 0
+      
+      # Reverse is A/D
+      q_fwd <- get_move_prob(gam.old, "A/D") / p
+      q_rev <- get_move_prob(gam.candid, "A/D") / p
+      log.q <- log(q_rev) - log(q_fwd)
     }
-  }else if (move == "C"){  # Change Move (between 1,2,3, model size unchanged)
-    if (length(which(gam.candid != 0)) == 1){
-      idx = which(gam.candid != 0)
-      gam.candid[idx] = sample(c(1:3)[-gam.candid[idx]],1)
-    }else{
-      idx = sample(which(gam.candid != 0), 1)
-      gam.candid[idx] = sample(c(1:3)[-gam.candid[idx]],1)
-    }
-    log.q = 0
-  }else if (move == "S"){  # Swap Move (between two variables, might change model size)
-    idx1 = sample(c(1:length(gam.candid)),1)
-    gam.1 = gam.candid[idx1]
-    q_prop = sum(gam.candid != gam.1)
-    idx2 = sample(c(1:length(gam.candid))[gam.candid!= gam.1], 1)
-    gam.2 = gam.candid[idx2]
-    if (gam.1+gam.2 != 3){
-      gam.candid[idx1] = gam.2
-      gam.candid[idx2] = gam.1
-    }else if (gam.1 == 1 | gam.1 == 2){
-      a = sample(c(T,F),1)
-      if (a){
-        gam.candid[idx1] = 0
-        gam.candid[idx2] = 3
-      }else{
-        gam.candid[idx1] = 3
-        gam.candid[idx2] = 0
+    
+  } else if (move == "C") {
+    nonzero_idx <- which(gam.candid != 0)
+    n_nonzero <- length(nonzero_idx)
+    idx <- ifelse(n_nonzero == 1, nonzero_idx, sample(nonzero_idx, 1))
+    gam.candid[idx] <- sample(setdiff(1:3, gam.candid[idx]), 1)
+    
+    # q_fwd = P(C|old) × (1/n_nonzero) × (1/2)
+    # q_rev = P(C|new) × (1/n_nonzero) × (1/2)  [same n_nonzero]
+    q_fwd <- get_move_prob(gam.old, "C") / n_nonzero / 2
+    q_rev <- get_move_prob(gam.candid, "C") / n_nonzero / 2
+    log.q <- log(q_rev) - log(q_fwd)
+    
+  } else if (move == "S") {
+    idx1 <- sample(1:p, 1)
+    gam.1 <- gam.candid[idx1]
+    other_idx <- which(gam.candid != gam.1)
+    n_other <- length(other_idx)
+    idx2 <- sample(other_idx, 1)
+    gam.2 <- gam.candid[idx2]
+    
+    # Execute swap
+    if (gam.1 + gam.2 != 3) {
+      gam.candid[idx1] <- gam.2
+      gam.candid[idx2] <- gam.1
+    } else if (gam.1 %in% c(1, 2)) {
+      if (sample(c(TRUE,FALSE), 1)) {
+        gam.candid[idx1] <- 0
+        gam.candid[idx2] <- 3
+      } else {
+        gam.candid[idx1] <- 3
+        gam.candid[idx2] <- 0
       }
-    }else if (gam.1 == 0 | gam.1 == 3){
-      a = sample(c(T,F),1)
-      if (a){
-        gam.candid[idx1] = 1
-        gam.candid[idx2] = 2
-      }else{
-        gam.candid[idx1] = 2
-        gam.candid[idx2] = 1
+    } else {
+      if (sample(c(TRUE,FALSE), 1)) {
+        gam.candid[idx1] <- 1
+        gam.candid[idx2] <- 2
+      } else {
+        gam.candid[idx1] <- 2
+        gam.candid[idx2] <- 1
       }
     }
-    q_reverse = sum(gam.candid != gam.candid[idx1])
-    log.q = log(q_reverse) - log(q_prop)
-  }else if (move == "C*"){  # Change Move: changing model type
-    if (haz == "AFT"){
-      new.mod <- sample(c(1:3),1)
-      gam.candid[gam.candid == 4] = new.mod
-      if (gam2haz(gam.candid) == "GH"){
-        log.q = log(3)
+    
+    n_other_new <- sum(gam.candid != gam.candid[idx1])
+    q_fwd <- get_move_prob(gam.old, "S") / p / n_other
+    q_rev <- get_move_prob(gam.candid, "S") / p / n_other_new
+    
+    # Account for the 1/2 factor in special cases
+    if (gam.1 + gam.2 == 3) {
+      q_fwd <- q_fwd / 2
+    }
+    gam.new.1 <- gam.candid[idx1]
+    gam.new.2 <- gam.candid[idx2]
+    if (gam.new.1 + gam.new.2 == 3) {
+      q_rev <- q_rev / 2
+    }
+    
+    log.q <- log(q_rev) - log(q_fwd)
+    
+  } else if (move == "C*") {
+    
+    if (haz == "AFT") {
+      new_val <- sample(1:3, 1)
+      gam.candid[gam.candid == 4] <- new_val
+      new_haz <- gam2haz(gam.candid)
+      
+      # q_fwd = P(C*|AFT) × (1/3)
+      q_fwd <- get_move_prob(gam.old, "C*") / 3
+      
+      if (new_haz == "GH") {
+        # q_rev = P(C*|GH) × 1
+        q_rev <- get_move_prob(gam.candid, "C*")
         current_move <<- "AFT_GH"
-      }else{
-        log.q = log(1.5)
-        current_move <<- ifelse(new.mod == 1, "AFT_AH", "AFT_PH")
+      } else {
+        # q_rev = P(C*|AH or PH) × (1/2)
+        q_rev <- get_move_prob(gam.candid, "C*") / 2
+        current_move <<- ifelse(new_val == 1, "AFT_AH", "AFT_PH")
       }
-    }else if (haz == "GH"){
+      log.q <- log(q_rev) - log(q_fwd)
+      
+    } else if (haz == "GH") {
       gam.candid[gam.candid == 3] <- 4
-      log.q = -log(3)
       current_move <<- "GH_AFT"
-    }else{
-      idx = which(gam.candid != 0)
-      gam.candid[idx] = sample(c(1,2,4)[-gam.candid[idx]],1)
-      if (gam2haz(gam.candid) == "AFT"){
-        log.q = -log(1.5)
+      
+      # q_fwd = P(C*|GH) × 1
+      # q_rev = P(C*|AFT) × (1/3)
+      q_fwd <- get_move_prob(gam.old, "C*")
+      q_rev <- get_move_prob(gam.candid, "C*") / 3
+      log.q <- log(q_rev) - log(q_fwd)
+      
+    } else {
+      # AH or PH
+      nonzero_idx <- which(gam.candid != 0)
+      current_val <- gam.candid[nonzero_idx[1]]
+      new_val <- sample(setdiff(c(1,2,4), current_val), 1)
+      gam.candid[nonzero_idx] <- new_val
+      new_haz <- gam2haz(gam.candid)
+      
+      # q_fwd = P(C*|AH/PH) × (1/2)
+      q_fwd <- get_move_prob(gam.old, "C*") / 2
+      
+      if (new_haz == "AFT") {
+        # q_rev = P(C*|AFT) × (1/3)
+        q_rev <- get_move_prob(gam.candid, "C*") / 3
         current_move <<- ifelse(haz == "PH", "PH_AFT", "AH_AFT")
-      }else{
-        log.q = 0
+      } else {
+        # q_rev = P(C*|AH/PH) × (1/2)
+        q_rev <- get_move_prob(gam.candid, "C*") / 2
         current_move <<- ifelse(haz == "PH", "PH_AH", "AH_PH")
       }
+      log.q <- log(q_rev) - log(q_fwd)
     }
+    
+  } else if (move == "A_null") {
+    idx <- sample(1:p, 1)
+    new_val <- sample(1:4, 1)
+    gam.candid[idx] <- new_val
+    new_haz <- gam2haz(gam.candid)
+    
+    # q_fwd = 1 × (1/p) × (1/4)
+    q_fwd <- 1.0 / p / 4
+    
+    # q_rev depends on target structure
+    if (new_haz == "GH") {
+      # Reverse is A/D_GH delete
+      n_valid_new <- length(get_valid_idx(gam.candid))
+      q_rev <- get_move_prob(gam.candid, "A/D_GH") / n_valid_new
+    } else {
+      # Reverse is A/D delete
+      q_rev <- get_move_prob(gam.candid, "A/D") / p
+    }
+    log.q <- log(q_rev) - log(q_fwd)
   }
+  
   return(list(gam.proposal = gam.candid, lograt = log.q))
 }
 
@@ -475,46 +653,4 @@ prior.gam = function(par4, log=T, type = gamprior,
     ifelse(log, return(pi.gam), return(exp(pi.gam)))
   }
 }
-
-# gh.multpl <- function(p, k){
-#   if (!is.numeric(p) || !is.numeric(k) || p <= 0 || k < 0) {
-#     stop("p must be a positive integer and k must be non-negative")
-#   }
-#   
-#   # Convert to integers if they aren't already
-#   p <- as.integer(p)
-#   k <- as.integer(k)
-#   
-#   # Check if k is achievable (sum can be at most 2p)
-#   if (k > 2 * p) {
-#     return(0)
-#   }
-#   
-#   # Calculate range for n_d (number of 'd' letters)
-#   n_d_min <- max(0, k - p)
-#   n_d_max <- min(p, floor(k / 2))
-#   
-#   # If no valid n_d values exist
-#   if (n_d_min > n_d_max) {
-#     return(0)
-#   }
-#   
-#   # Calculate the sum over all valid n_d values
-#   total_combinations <- 0
-#   
-#   for (n_d in n_d_min:n_d_max) {
-#     # Calculate n_a, and the constraint k - 2*n_d for n_b + n_c
-#     n_a <- p - k + n_d
-#     sum_bc <- k - 2 * n_d
-#     
-#     # Calculate the multinomial coefficient term
-#     # Formula: (p! * 2^(k-2*n_d)) / ((p-k+n_d)! * n_d! * (k-2*n_d)!)
-#     term <- (factorial(p) * (2^sum_bc)) / 
-#       (factorial(n_a) * factorial(n_d) * factorial(sum_bc))
-#     
-#     total_combinations <- total_combinations + term
-#   }
-#   
-#   return(as.integer(total_combinations))
-# }
 
