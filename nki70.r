@@ -44,7 +44,7 @@ print(chains$post.prob[1:10,])  # Model PP estimated from the visited models
 
 
 ################ Comparison 1 ##########################
-##### (mombf) AFT model with local prior #####
+##### mombf: BVS for AFT model with non-local prior #####
 ########################################################
 library(mombf)
 ys <- Surv(log(nki70$time), event=nki70$event)
@@ -63,7 +63,7 @@ print(postProb(aft1,10))
 
 
 ################ Comparison 2 ##########################
-##### (BVSNLP) Cox pMOM prior #####
+##### BVSNLP: Cox PiMOM prior #####
 ########################################################
 library(BVSNLP)
 y2 <- Surv(time = df$time, df$status)
@@ -73,4 +73,3 @@ nlpcox <- bvs(X = data.frame(X), resp = as.matrix(cbind(df$time, df$status)),
               niter = 500, ncpu = 4)
 bvs.post <- function(bvsfit,len.out=10){data.frame(Freq=exp(bvsfit$max_prob_vec-mclust::logsumexp(bvsfit$max_prob_vec))[1:len.out],Vars=unlist(lapply(bvsfit$max_models[1:len.out],function(x){paste0(colnames(X)[t(x)],collapse = ", ")})))}
 print(bvs.post(nlpcox,10))
-

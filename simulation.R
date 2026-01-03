@@ -17,8 +17,8 @@ dat = simdat(n = n, p = p, sigma = sigma,
              cens = "0.5default", # could be a number in (0,1]
              hstr = hstr, baseline = baseline, n.simset = 1)[[1]][[1]]
 
-mcmcpar = list(n.iter = 10000, n.burnin = 5000, n.thin = 2, 
-               n.chain = 1, printevery = 2000)
+mcmcpar = list(n.iter = 20000, n.burnin = 10000, n.thin = 2, 
+               n.chain = 1, printevery = 5000)
 modelpar = list(inits = list(nu=rnorm(1), theta0=rnorm(1), theta=rnorm(p,0,0.5), eta=rnorm(p,0,0.5),
                              g.theta = 1, g.eta = 1, g.aft = 1, # for Product prior
                              g = 1, # for LCM prior
@@ -33,10 +33,12 @@ modelpar = list(inits = list(nu=rnorm(1), theta0=rnorm(1), theta=rnorm(p,0,0.5),
 print("Starting model:")
 print(modelpar$inits$gam)
 
+tic()
 chains = BVS.MCMC(modelpar, mcmcpar, verbose = T,
                   gprior.mat = "LCM", # one of ("LCM", "LCM-hyper", "Product")
-                  gamprior = "custom" # one of ("default", "custom", "uniform")
+                  gamprior = "default" # one of ("default", "custom", "uniform")
                   )
+time_cpp = toc()
 
 print(chains$PIP)
 print(chains$model.freq[1:10])  # Model PP based on proportion of MCMC visits

@@ -1,3 +1,34 @@
+#########################
+# Some functions
+#########################
+
+#--------------------------------------------------------------------------------------------------------------------------
+# C++ implementations (loaded if available)
+# Set USE_CPP = TRUE to use C++ versions for better performance
+#--------------------------------------------------------------------------------------------------------------------------
+USE_CPP <- FALSE  # Will be set to TRUE if C++ is successfully loaded
+
+# Try to load C++ implementations
+tryCatch({
+  if (!exists("lglik_cpp") || !exists("gradLLS_cpp") || !exists("hessLLS_cpp")) {
+    if (file.exists("src/likelihood_functions.cpp")) {
+      library(Rcpp)
+      library(RcppArmadillo)
+      sourceCpp("src/likelihood_functions.cpp")
+      USE_CPP <- TRUE
+      message("C++ likelihood functions loaded successfully")
+    }
+  } else {
+    USE_CPP <- TRUE
+  }
+}, error = function(e) {
+  message("C++ functions not available, using R implementations: ", e$message)
+})
+
+#--------------------------------------------------------------------------------------------------------------------------
+# Laplace
+#--------------------------------------------------------------------------------------------------------------------------
+
 # Probability Density Function: location parameter mu and scale parameter sigma
 dlap = function(x,mu=0,sigma=1,log=FALSE){
   log.den = - log(2) - log(sigma) - abs(x-mu)/sigma
@@ -25,9 +56,22 @@ return(as.vector(val))
 
 #--------------------------------------------------------------------------------------------------------------------------
 # The Normal Inverse Mills Ratio (IMR) function
+# Optimized: removed Vectorize wrapper for better performance
 #--------------------------------------------------------------------------------------------------------------------------
-NIMR <- Vectorize( function(x) exp( dnorm(x,log=T) - pnorm(x,log.p = TRUE, lower.tail = FALSE) ) )
+NIMR <- function(x) exp( dnorm(x, log=TRUE) - pnorm(x, log.p = TRUE, lower.tail = FALSE) )
 
+#--------------------------------------------------------------------------------------------------------------------------
+# Pre-convert data for C++ functions (call once, reuse many times)
+# This avoids repeated as.matrix()/as.integer() conversions in tight loops
+#--------------------------------------------------------------------------------------------------------------------------
+prepare_data_cpp <- function(data) {
+  list(
+    x = as.matrix(data$x),
+    xt = as.matrix(data$xt),
+    y = as.numeric(data$y),
+    status = as.integer(data$status)
+  )
+}
 
 lglik = function(par, data,
                  pdf="dnorm", cdf="pnorm"){
@@ -37,6 +81,29 @@ lglik = function(par, data,
   # theta = -alpha/sigma
   # eta = -beta
   ###
+
+  # Use C++ implementation if available (only for lnorm)
+  if (USE_CPP && pdf == "dnorm" && cdf == "pnorm") {
+    # Check if data is pre-converted (has .cpp_ready attribute or correct types)
+    if (is.matrix(data$x) && is.integer(data$status)) {
+      return(lglik_cpp(
+        par$nu, par$theta0,
+        as.numeric(par$theta), as.numeric(par$eta),
+        data$x, data$xt, data$y, data$status,
+        as.integer(par$gam)
+      ))
+    } else {
+      return(lglik_cpp(
+        par$nu, par$theta0,
+        as.numeric(par$theta), as.numeric(par$eta),
+        as.matrix(data$x), as.matrix(data$xt),
+        as.numeric(data$y), as.integer(data$status),
+        as.integer(par$gam)
+      ))
+    }
+  }
+
+  # R implementation (fallback)
   X <- data$x; Xt <- data$xt; times <- data$y; status <- data$status
   X <- as.matrix(X);  Xt <- as.matrix(Xt); times <- as.vector(times)
   p <- ncol(X);  pt <- ncol(Xt)
@@ -44,7 +111,7 @@ lglik = function(par, data,
   yi = log(times); log.t <- sum(yi[status]); n.obs <- sum(status)
   # Parameters
   nu <- par$nu; theta0 <- par$theta0; theta <- par$theta; eta <- par$eta
-  
+
   # useful quantities
   enu <- exp(nu)
   e_nu <- exp(-nu)
@@ -57,7 +124,7 @@ lglik = function(par, data,
   }
   u.i <- as.vector(enu*yi - X.theta - theta0)
   vi.di <- as.vector(v.i - delta)
-  
+
   if(pdf=="dnorm" & cdf=="pnorm"){
     lgf_t = dnorm(u.i,log = T)  # log(f(tau*log(t_i) - x_til^T*theta - theta0))
     lgF_t = pnorm(-u.i,log.p = T)  # log(F(-...))
@@ -65,8 +132,8 @@ lglik = function(par, data,
     lgf_t = eval(parse(text = paste0("log(",pdf,"(u.i))")))  # log(f(tau*log(t_i) - x_til^T*theta - theta0))
     lgF_t = eval(parse(text = paste0("log(",cdf,"(-u.i))")))  # log(F(-...))
   }
-  
-  out = n.obs*nu - sum(yi[status]) + ifelse(any(par$gam == 4),0,sum(log(v.i)[status])) + 
+
+  out = n.obs*nu - sum(yi[status]) + ifelse(any(par$gam == 4),0,sum(log(v.i)[status])) +
     sum(lgf_t[status]) + sum(lgF_t*vi.di)
   return(as.numeric(out))
 }
@@ -75,6 +142,29 @@ lglik = function(par, data,
 # Gradient function
 #--------------------------------------------------------------------------------------------------------------------------
 gradLLS <- function(par, data, dist = "lnorm"){
+
+  # Use C++ implementation if available (only for lnorm)
+  if (USE_CPP && dist == "lnorm") {
+    # Check if data is pre-converted
+    if (is.matrix(data$x) && is.integer(data$status)) {
+      return(as.vector(gradLLS_cpp(
+        par$nu, par$theta0,
+        as.numeric(par$theta), as.numeric(par$eta),
+        data$x, data$xt, data$y, data$status,
+        as.integer(par$gam)
+      )))
+    } else {
+      return(as.vector(gradLLS_cpp(
+        par$nu, par$theta0,
+        as.numeric(par$theta), as.numeric(par$eta),
+        as.matrix(data$x), as.matrix(data$xt),
+        as.numeric(data$y), as.integer(data$status),
+        as.integer(par$gam)
+      )))
+    }
+  }
+
+  # R implementation (fallback)
   # Common variables
   X <- data$x; Xt <- data$xt; times <- data$y; status <- data$status
   X <- as.matrix(X);  Xt <- as.matrix(Xt); times <- as.vector(times)
@@ -96,7 +186,7 @@ gradLLS <- function(par, data, dist = "lnorm"){
   }
   u.i <- as.vector(enu*yi - X.theta - theta0)
   vi.di <- as.vector(v.i - delta)
-  
+
   if(dist == "lnorm"){
     fp.fu.i.obs <- -u.i[status]  # -ui*di
     IMR.ui_vi.di <- as.vector(NIMR(u.i)*vi.di)  # f(ui)/F(-ui)*[vi - di]
@@ -127,7 +217,7 @@ gradLLS <- function(par, data, dist = "lnorm"){
     grad.eta <- -colSums(X[status,,drop=FALSE]) - colSums(log.Fv*X)
     grad.nu <- n.obs - sum(X.theta[status])*e_nu + sum(fp.fu.i.obs*yi[status])*enu -
       sum(IMR.ui_vi.di*yi*enu) - sum(log.Fv*X.theta)*e_nu
-  } 
+  }
   return(as.vector(c(grad.nu,grad.theta0,grad.theta,grad.eta)))
 }
 
@@ -135,6 +225,29 @@ gradLLS <- function(par, data, dist = "lnorm"){
 # Hessian matrix function
 #--------------------------------------------------------------------------------------------------------------------------
 hessLLS <- function(par, data, dist="lnorm"){
+
+  # Use C++ implementation if available (only for lnorm)
+  if (USE_CPP && dist == "lnorm") {
+    # Check if data is pre-converted
+    if (is.matrix(data$x) && is.integer(data$status)) {
+      return(hessLLS_cpp(
+        par$nu, par$theta0,
+        as.numeric(par$theta), as.numeric(par$eta),
+        data$x, data$xt, data$y, data$status,
+        as.integer(par$gam)
+      ))
+    } else {
+      return(hessLLS_cpp(
+        par$nu, par$theta0,
+        as.numeric(par$theta), as.numeric(par$eta),
+        as.matrix(data$x), as.matrix(data$xt),
+        as.numeric(data$y), as.integer(data$status),
+        as.integer(par$gam)
+      ))
+    }
+  }
+
+  # R implementation (fallback)
   # Common variables
   X <- data$x; Xt <- data$xt; times <- data$y; status <- data$status
   X <- as.matrix(X);  Xt <- as.matrix(Xt); times <- as.vector(times)
@@ -143,7 +256,7 @@ hessLLS <- function(par, data, dist="lnorm"){
   yi = log(times); log.t <- sum(yi[status]); n.obs <- sum(status)
   # Parameters
   nu <- par$nu; theta0 <- par$theta0; theta <- par$theta; eta <- par$eta
-  
+
   # Common quantities
   enu <- exp(nu)
   e_nu <- exp(-nu)
@@ -157,18 +270,15 @@ hessLLS <- function(par, data, dist="lnorm"){
   }else{
     X.eta <- as.vector(X%*%eta)
     v.i <- exp(X.theta*e_nu - X.eta)
-    X.X <- lapply(1:nrow(X), function(i) tcrossprod(X[i,]))
-    Xt.X <- lapply(1:nrow(Xt), function(i) tcrossprod(Xt[i,],X[i,]))
   }
   u.i <- as.vector(enu*yi - X.theta - theta0)
   u.i.obs <- u.i[status]
   u.i2 <- u.i^2
   u.i2.obs <- u.i2[status]
-  Xt.Xt <- lapply(1:nrow(Xt), function(i) tcrossprod(Xt[i,]))
   yi2 <- yi^2
   yi.enu <- yi*enu
   yi.enu2 <- yi.enu^2
-  
+
   if(dist == "lnorm"){
     # Common quantities
     fpp.f.obs <- as.vector(-1 + u.i2.obs)
@@ -182,9 +292,10 @@ hessLLS <- function(par, data, dist="lnorm"){
     if (any(par$gam == 4)){
       hess.theta0 <- sum(fpp.f.obs - fp.f.obs2)- sum( (fp.F + f.F2)*vi.di )
       w.theta.obs <- (fpp.f.obs - fp.f.obs2)
-      w.theta <-  -(fp.F + f.F2)*vi.di 
+      w.theta <-  -(fp.F + f.F2)*vi.di
       w.theta <- as.vector(w.theta); w.theta.obs <- as.vector(w.theta.obs)
-      hess.theta <- Reduce('+', Map(`*`, Xt.Xt[status], w.theta.obs)) + Reduce('+', Map(`*`, Xt.Xt, w.theta)) 
+      # Optimized: use crossprod with weights instead of Reduce+Map
+      hess.theta <- crossprod(Xt.obs * w.theta.obs, Xt.obs) + crossprod(Xt * w.theta, Xt) 
       hess.eta <- matrix(0, nrow = p, ncol = p)
       hess.nu <-  sum((fpp.f.obs - fp.f.obs2)*yi.enu2[status]) + sum( -u.i.obs*yi.enu[status] ) - 
         sum((fp.F + f.F2)*yi.enu2*vi.di) - sum( f.F*vi.di*yi.enu)
@@ -202,8 +313,9 @@ hessLLS <- function(par, data, dist="lnorm"){
       w.theta.obs <- (fpp.f.obs - fp.f.obs2)
       w.theta <-  -(fp.F + f.F2)*vi.di + 2*f.F*v.i*e_nu + log.Fv * e_2nu
       w.theta <- as.vector(w.theta); w.theta.obs <- as.vector(w.theta.obs)
-      hess.theta <- Reduce('+', Map(`*`, Xt.Xt[status], w.theta.obs)) + Reduce('+', Map(`*`, Xt.Xt, w.theta))       
-      hess.eta <- Reduce('+', Map(`*`, X.X, log.Fv)) 
+      # Optimized: use crossprod with weights instead of Reduce+Map
+      hess.theta <- crossprod(Xt.obs * w.theta.obs, Xt.obs) + crossprod(Xt * w.theta, Xt)
+      hess.eta <- crossprod(X * log.Fv, X) 
       # fp.fobs*u.i.obs = -u.i2.obs
       hess.nu <-  sum(X.theta.e_nu[status]) + sum((fpp.f.obs - fp.f.obs2)*yi.enu2[status]) + 
         sum( -u.i.obs*yi.enu[status] ) - sum((fp.F + f.F2)*yi.enu2*vi.di) + sum(log.Fv*X.theta.e_nu*(1+X.theta.e_nu)) + 
@@ -217,7 +329,8 @@ hessLLS <- function(par, data, dist="lnorm"){
         sum( (fp.F + f.F2)*vi.di*yi.enu ) - sum(f.F*v.i*X.theta.e_nu)
       
       w.theta.eta <-  as.vector(-(f.F)*v.i - log.Fv*e_nu)
-      hess.theta.eta <- Reduce('+', Map(`*`, Xt.X, w.theta.eta))    
+      # Optimized: use crossprod with weights instead of Reduce+Map
+      hess.theta.eta <- crossprod(Xt * w.theta.eta, X)    
       hess.theta.nu <- colSums(-Xt.obs)*e_nu - colSums((fpp.f.obs - fp.f.obs2)*Xt.obs*yi.enu[status]) - 
         colSums(f.F*v.i*Xt*X.theta.e_nu) - colSums(log.Fv*Xt*(1+X.theta.e_nu))*e_nu +
         colSums( (fp.F + f.F2)*yi.enu*vi.di*Xt ) - colSums(f.F*yi*v.i*Xt)
@@ -242,21 +355,23 @@ hessLLS <- function(par, data, dist="lnorm"){
     w.theta.obs <- (fpp.f.obs - fp.f.obs2)
     w.theta <-  -(fp.F + f.F2)*vi.di + 2*f.F*v.i*e_nu + log.Fv * e_2nu
     w.theta <- as.vector(w.theta); w.theta.obs <- as.vector(w.theta.obs)
-    hess.theta <- Reduce('+', Map(`*`, Xt.Xt[status], w.theta.obs)) + Reduce('+', Map(`*`, Xt.Xt, w.theta))       
-    hess.eta <- Reduce('+', Map(`*`, X.X, log.Fv)) 
+    # Optimized: use crossprod with weights instead of Reduce+Map
+    hess.theta <- crossprod(Xt.obs * w.theta.obs, Xt.obs) + crossprod(Xt * w.theta, Xt)
+    hess.eta <- crossprod(X * log.Fv, X)
     # fp.fobs*u.i.obs = -u.i2.obs
-    hess.nu <-  sum(X.theta.e_nu[status]) + sum((fpp.f.obs - fp.f.obs2)*yi.enu2[status]) + 
-      sum( fp.fobs*yi.enu[status] ) - sum((fp.F + f.F2)*yi.enu2*vi.di) + sum(log.Fv*X.theta.e_nu*(1+X.theta.e_nu)) + 
+    hess.nu <-  sum(X.theta.e_nu[status]) + sum((fpp.f.obs - fp.f.obs2)*yi.enu2[status]) +
+      sum( fp.fobs*yi.enu[status] ) - sum((fp.F + f.F2)*yi.enu2*vi.di) + sum(log.Fv*X.theta.e_nu*(1+X.theta.e_nu)) +
       2*sum( f.F*yi*v.i*X.theta) - sum( f.F*vi.di*yi.enu)
-    hess.theta0.theta <- colSums( (fpp.f.obs - fp.f.obs2)*Xt.obs ) + colSums( f.F*v.i*Xt )*e_nu - 
+    hess.theta0.theta <- colSums( (fpp.f.obs - fp.f.obs2)*Xt.obs ) + colSums( f.F*v.i*Xt )*e_nu -
       colSums( (fp.F + f.F2)*vi.di*Xt )
     hess.theta0.eta <- - colSums( f.F*v.i*X )
     # fp.f = -u.i here
-    hess.theta0.nu <- -sum( (fpp.f.obs - fp.f.obs2)*yi.enu[status] ) + 
+    hess.theta0.nu <- -sum( (fpp.f.obs - fp.f.obs2)*yi.enu[status] ) +
       sum( (fp.F + f.F2)*vi.di*yi.enu ) - sum(f.F*v.i*X.theta.e_nu)
-    
+
     w.theta.eta <-  as.vector(-(f.F)*v.i - log.Fv*e_nu)
-    hess.theta.eta <- Reduce('+', Map(`*`, Xt.X, w.theta.eta))    
+    # Optimized: use crossprod with weights instead of Reduce+Map
+    hess.theta.eta <- crossprod(Xt * w.theta.eta, X)    
     hess.theta.nu <- colSums(-Xt.obs)*e_nu - colSums((fpp.f.obs - fp.f.obs2)*Xt.obs*yi.enu[status]) - 
       colSums(f.F*v.i*Xt*X.theta.e_nu) - colSums(log.Fv*Xt*(1+X.theta.e_nu))*e_nu +
       colSums( (fp.F + f.F2)*yi.enu*vi.di*Xt ) - colSums(f.F*yi*v.i*Xt)
@@ -354,3 +469,25 @@ GDMLE <- function(init, dist, data, method = "BB",
   out <- list(par = par, maxiter = iter, gradient = grad.par1)
   return(out)
 }
+  
+###########################################################################################
+# Function to calculate the normal confidence intervals
+###########################################################################################
+# FUN   : minus log-likelihood function to be used to calculate the confidence intervals
+# par   : maximum likelihood estimator of the parameters of interest in the log scale for positive parameters
+# level : confidence level
+
+Conf.Int <- function(level=0.95, par, dist, times, status, X, Xt){
+  sd.int <- abs(qnorm(0.5*(1-level)))
+  HESS <- hessLLS(par, dist, times, status, X, Xt)
+  Fisher.Info <- -solve(HESS)
+  Sigma <- sqrt(diag(Fisher.Info))
+  U<- par + sd.int*Sigma
+  L<- par - sd.int*Sigma
+  C.I <- cbind(L,U,par, Sigma)
+  names.row <- paste0("par", seq_along(1:length(par)))
+  rownames(C.I)<- names.row
+  colnames(C.I)<- c("Lower","Upper", "MLE", "Std. Error")
+  return(C.I)
+}
+
