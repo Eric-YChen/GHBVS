@@ -1,6 +1,4 @@
-print("current wd:")
-print(getwd())
-source("./HazReg/routines.R")
+library(HazReg)
 library(mvtnorm)
 library(survival)
 library(glmnet)
@@ -14,21 +12,19 @@ library(RcppArmadillo)
 ################################################################################
 source("./utils/helper_functions.R")
 n.vec = c(250,500,1000) # eff.n = n-rho*cens, rho=1: only uncensored
-p = 10
+p = 10  # Also set p = 50 and p = 100 for reproduction
 n.simset = 250
 censrat = c("0.25default","0.5default")
-priorstr = "LCM"
+priorstr = "LCM"  # Also set priorstr = "Product" for reproduction
 filename = "mpi_simulation_raw.RData"
 
 sigma = 0.7**abs(matrix(rep(c(1:p),p),nrow=p,byrow = T) - c(1:p))
-hstr = c("PH","AFT","GH","AH")
+hstr = c("PH","AFT","GH")
 baseline = c("LN","PGW")
-#baseline = "PGW"
-#hstr = "AH"
 
 
 str.grid = expand.grid(n.vec, p, hstr, baseline, censrat)
-#str.grid = str.grid[(str.grid[,3]!="GH" | str.grid[,4]!="PGW"),]
+str.grid = str.grid[(str.grid[,3]!="GH" | str.grid[,4]!="PGW"),]
 row.names(str.grid) = NULL
 names(str.grid) = c("n","p","hstr","baseline")
 
@@ -85,9 +81,11 @@ results_parallel <- foreach(idx = 1:nrow(sim_indices),
                               pxt = ncol(dat$xt)
                               px = ncol(dat$x)
                               
-                              # Initialize (timing is done per worker)
+                              # Initialize
                               start_time_init <- Sys.time()
                               initgam = init.gam(dat, history.keep = F)
+                              # Only used for the simulation study in the supplementary material
+                              # initgam = if (str.grid[i,3]=="PH"){sample(c(0,2),px, replace = T)}else{sample(c(0,4),px, replace = T)}
                               end_time_init <- Sys.time()
                               init.runtime <- as.numeric(difftime(end_time_init, start_time_init, units = "secs"))
                               
@@ -96,6 +94,7 @@ results_parallel <- foreach(idx = 1:nrow(sim_indices),
                                                            g.theta = 1, g.eta = 1, g.aft = 1, g = 1,
                                                            gam = initgam, a_g = NULL,
                                                            nu.alpha = 0.01, nu.beta = 0.01), 
+                                              # Only used for the simulation study in the supplementary material
                                               # gam.param = list(layer1.betabin.par = c(1,1),
                                               #                  layer2.mulnom.par = if (str.grid[i,3]=="PH"){c(0,1,0,0)}else{c(0,0,0,1)},
                                               #                  layer3.beta.par = 1/3),
@@ -119,9 +118,6 @@ results_parallel <- foreach(idx = 1:nrow(sim_indices),
                               list(
                                 i = i,
                                 j = j,
-                                #pip = chains$PIP,
-                                #freq = chains$model.freq,
-                                #hazpip = chains$hazPIP,
                                 fullchain = fullchain,
                                 cens_rat = cens_rat,
                                 runtime = c(init = init.runtime, sampler = sampler_runtime)
@@ -140,7 +136,6 @@ closeCluster(cl)
 time.elaps = toc()
 time.elaps = time.elaps$toc-time.elaps$tic
 
-# Save simulation results directly after foreach
 save(str.grid, results_parallel, n.simset, time.elaps, file = filename)
 
 mpi.quit()
