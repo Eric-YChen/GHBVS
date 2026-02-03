@@ -7,4 +7,6 @@ Code for:
 - `flchain.R`: Reproducing the FLC application.
 - `nki70.R`: Reproducing the NKI70 application. 
 
+Default setting: Pure R implementation (`BVS.MCMC(..., use_cpp = F)`); for C++ implementation of optimisation, likelihood, hessian, etc. (currently under working), set `BVS.MCMC(..., use_cpp = T)`.
+
 Adjust the hyperparameters of the priors and sampler according to the comments if needed. 
