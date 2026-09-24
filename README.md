@@ -15,7 +15,7 @@ Standard Bayesian variable selection approaches for survival data typically assu
 The following R packages are required:
 
 ```r
-install.packages(c("survival", "mvtnorm", "coda", "Rcpp"))
+install.packages(c("survival", "mvtnorm"))
 ```
 
 > Verify exact dependencies against the `library()` calls at the top of each
@@ -31,21 +31,16 @@ GHBVS/
 ├── mpi.R               # RNG stream controls for reproducible simulation results
 ├── flchain.R           # Real data application: FLC (flchain) dataset
 ├── nki70.R             # Real data application: NKI70 breast cancer dataset
+├── ipilimumab.R        # Real data application: CA184043 prostate cancer trial dataset
 └── [data files]        # Deidentified datasets for the real data applications
 ```
 
 ## Usage
 
-The main function is `BVS.MCMC()`. Two implementations are available:
+The main function is `BVS.MCMC()`. 
 
-| Setting | Argument | Status | Notes |
-|---|---|---|---|
-| Pure R | `use_cpp = FALSE` | ✓ Default | Used to produce all results in the paper |
-| C++ (optimisation, likelihood, Hessian) | `use_cpp = TRUE` | ⚠ In development — **do not use** | — |
-
-For the simulation study, run `mpi.R` first to set RNG stream controls before
-running `simulation.R`, in order to reproduce the exact results reported in the
-paper. Hyperparameters for priors and the sampler can be adjusted via the
+For the simulation study, `mpi.R` is for reproducing exact results on multi-core CPU(s) with mpi available.
+`simulation.R` is a demonstration only. Hyperparameters for priors and the sampler can be adjusted via the
 function arguments — see comments within the scripts for guidance.
 
 ## Data applications
@@ -54,6 +49,7 @@ function arguments — see comments within the scripts for guidance.
 |---|---|---|
 | `flchain.R` | FLC (`flchain`) | Free light chain study |
 | `nki70.R` | NKI70 | Breast cancer gene expression (70-gene signature) |
+| `ipilimumab.R` | CA184043_2A | ipilimumab treatment prostate cancer trial |
 
 Deidentified data for both applications are included in the repository.
 
