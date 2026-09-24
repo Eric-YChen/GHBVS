@@ -169,22 +169,22 @@ robust.g <- function(n, p, n_samples=1) {
 
 
 metrics <- function(gam, tru.gam){  # consider time & hazard part separately!!
-  if (is.character(gam)){
-    gam = as.numeric(strsplit(gam,split="")[[1]])
-  }
-  if (is.character(tru.gam)){
-    tru.gam = as.numeric(strsplit(tru.gam,split="")[[1]])
-  }
-  TP = sum(gam == tru.gam & tru.gam !=0)
-  TN = sum(gam == tru.gam & tru.gam == 0)
-  FP = sum(gam != tru.gam & tru.gam == 0)
-  FN = sum(gam != tru.gam & tru.gam != 0)
-  Spec = TN/(FP + TN)
-  Sens = TP/(TP + FN)
-  FDR = FP/(TP + FP)
-  n = length(gam)
-  phi = (TP*TN - FP*FN)/sqrt((TP + FP)*(TP + FN)*(TN + FP)*(TN + FN))
-  return(data.frame(Sens = Sens, Spec = Spec, FDR = FDR, phi = phi))
+    if (is.character(gam)){
+      gam = as.numeric(strsplit(gam,split="")[[1]])
+    }
+    if (is.character(tru.gam)){
+      tru.gam = as.numeric(strsplit(tru.gam,split="")[[1]])
+    }
+    TP = sum(gam !=0 & tru.gam !=0)
+    TN = sum(gam == 0 & tru.gam == 0)
+    FP = sum(gam != 0 & tru.gam == 0)
+    FN = sum(gam == 0 & tru.gam != 0)
+    Spec = TN/(FP + TN)
+    Sens = TP/(TP + FN)
+    FDR = FP/(TP + FP)
+    n = length(gam)
+    phi = (TP*TN - FP*FN)/sqrt((TP + FP)*(TP + FN)*(TN + FP)*(TN + FN))
+    return(data.frame(Sens = Sens, Spec = Spec, FDR = FDR, phi = phi))
 }
 
 gam2haz = function(gam){
@@ -206,7 +206,7 @@ gam2haz = function(gam){
   }
 }
 
-simdat <- function(n,p,mu = rep(0,p),sigma = diag(p), theta = "default", noise.sd = 0,
+simdat <- function(n,p,mu = rep(0,p),sigma = diag(p), theta = "default",
                    beta = c(1, -1, 0.25, -0.25, rep(0,p-4)), 
                    beta_t = c(1, 0.25, -1, -0.25, rep(0,p-4)), 
                    beta_h = c(0.25, -1, -0.25, 1, rep(0,p-4)),
@@ -288,8 +288,7 @@ simdat <- function(n,p,mu = rep(0,p),sigma = diag(p), theta = "default", noise.s
       dat <- simGH(seed = seeds[i], n = n, des = X, theta = theta,
                    beta = beta, hstr = hstr, baseline = baseline)
     }
-    dat <- dat + rnorm(n, 0, noise.sd)
-    dat <- pmax(dat, 1e-6)  # avoid 0 survival time
+
     if (cens <= 1){
       cens = quantile(dat, max(min(cens + runif(1, -0.05, 0.05), 1), 0.01))
     }
@@ -388,10 +387,8 @@ step.GH <- function(data, x.coefs = NULL, crit = "BIC"){
     # Perform one step of forward selection
     step.result <- onestep.vs(xt.incl, data, x.coefs, crit)
     
-    #print(step.result$crit-current.crit)
     # Check if we got an improvement
     if ((step.result$crit < current.crit) & (!is.nan((step.result$crit-current.crit)/current.crit)) & (abs((step.result$crit-current.crit)/current.crit) > 1e-3)){
-      # Find which variable was added
       added_var <- which(step.result$xt.incl != xt.incl)[1]
       
       # Update tracking
