@@ -1,7 +1,9 @@
 source("utils/routines2.R")
 source("utils/helper_functions.R")
 
-get_move_prob <- function(gam, move_type) {
+# Move probabilities for a given model state. Single source of truth: both the
+# move selection in ADS.proposal.aft() and the reverse-move densities read it.
+get_move_probs <- function(gam) {
   haz <- gam2haz(gam)
   
   if (haz == "Null") {
@@ -30,6 +32,19 @@ get_move_prob <- function(gam, move_type) {
     }
   }
   
+  # A/D_GH has no admissible index in some GH states (e.g. gam = (1,2) with
+  # p = 2: every deletion leaves GH and there is no zero to add). Drop the move
+  # there and renormalise, so it is never selected and its reverse density is 0.
+  if ("A/D_GH" %in% names(probs) && length(get_valid_idx(gam)) == 0) {
+    probs <- probs[names(probs) != "A/D_GH"]
+    probs <- probs / sum(probs)
+  }
+  
+  return(probs)
+}
+
+get_move_prob <- function(gam, move_type) {
+  probs <- get_move_probs(gam)
   if (move_type %in% names(probs)) return(probs[move_type])
   return(0)
 }
@@ -63,30 +78,11 @@ ADS.proposal.aft <- function(gam.old, gam.candid=NULL, ...){
   p <- length(gam.old)
   
   # MOVE SELECTION
-  if (haz == "Null") {
-    move <- "A_null"
-  } else if (haz == "AH" || haz == "PH") {
-    if (all(gam.old == 1) || all(gam.old == 2)) {
-      move <- sample(c("A/D","C","C*"), 1, prob=c(0.5, 0.25, 0.25))
-    } else {
-      move <- sample(c("A/D","S","C","C*"), 1, prob=c(0.5, 0.1, 0.2, 0.2))
-    }
-  } else if (haz == "AFT") {
-    if (all(gam.old == 4)) {
-      move <- sample(c("A/D","C*"), 1, prob=c(0.6, 0.4))
-    } else {
-      move <- sample(c("A/D","S","C*"), 1, prob=c(0.6, 0.2, 0.2))
-    }
-  } else {  # GH
-    if (all(gam.old %in% c(0,3))) {
-      if (all(gam.old == 3)) {
-        move <- sample(c("A/D_GH","C","C*"), 1, prob=c(0.5, 0.25, 0.25))
-      } else {
-        move <- sample(c("A/D_GH","S","C","C*"), 1, prob=c(0.5, 0.15, 0.15, 0.2))
-      }
-    } else {
-      move <- sample(c("A/D_GH","S","C"), 1, prob=c(0.5, 0.25, 0.25))
-    }
+  move.probs <- get_move_probs(gam.old)
+  if (length(move.probs) == 1){
+    move <- names(move.probs)
+  }else{
+    move <- sample(names(move.probs), 1, prob = move.probs)
   }
   
   current_move <<- move
@@ -113,7 +109,8 @@ ADS.proposal.aft <- function(gam.old, gam.candid=NULL, ...){
         # Reverse is A/D_GH add: q_rev = P(A/D_GH|new) × (1/n_valid_new) × (1/3)
         n_valid_new <- length(get_valid_idx(gam.candid))
         q_fwd <- get_move_prob(gam.old, "A/D_GH") / n_valid
-        q_rev <- get_move_prob(gam.candid, "A/D_GH") / n_valid_new / 3
+        q_rev <- ifelse(n_valid_new == 0, 0,
+                        get_move_prob(gam.candid, "A/D_GH") / n_valid_new / 3)
       }
       log.q <- log(q_rev) - log(q_fwd)
       
@@ -127,7 +124,8 @@ ADS.proposal.aft <- function(gam.old, gam.candid=NULL, ...){
       # q_rev = P(A/D_GH|new) × (1/n_valid_new)
       n_valid_new <- length(get_valid_idx(gam.candid))
       q_fwd <- get_move_prob(gam.old, "A/D_GH") / n_valid / 3
-      q_rev <- get_move_prob(gam.candid, "A/D_GH") / n_valid_new
+      q_rev <- ifelse(n_valid_new == 0, 0,
+                      get_move_prob(gam.candid, "A/D_GH") / n_valid_new)
       log.q <- log(q_rev) - log(q_fwd)
     }
     
@@ -287,7 +285,8 @@ ADS.proposal.aft <- function(gam.old, gam.candid=NULL, ...){
     if (new_haz == "GH") {
       # Reverse is A/D_GH delete
       n_valid_new <- length(get_valid_idx(gam.candid))
-      q_rev <- get_move_prob(gam.candid, "A/D_GH") / n_valid_new
+      q_rev <- ifelse(n_valid_new == 0, 0,
+                      get_move_prob(gam.candid, "A/D_GH") / n_valid_new)
     } else {
       # Reverse is A/D delete
       q_rev <- get_move_prob(gam.candid, "A/D") / p
@@ -302,29 +301,30 @@ MH.step.fixed <- function(target.dist, proposal.dist, par, data,...){
   # initialize
   par.new = par.old = par
   postprob = 0
-
-  # ensure the old model is in the dictionary (optimized: use environment for O(1) lookup)
+  
+  # ensure the old model is in the dictionary
   old.model.string = paste0(par$gam, collapse="")
-  if (!exists(old.model.string, envir = model.dict, inherits = FALSE)){
+  if (!(old.model.string %in% model.dict[,1])){
     post.old = target.dist(par.old,data=data)
-    assign(old.model.string, post.old, envir = model.dict)
+    model.dict[nrow(model.dict)+1,] <<- c(old.model.string,post.old)
   }else{
-    post.old = get(old.model.string, envir = model.dict)
+    idx = which(model.dict[,1] == old.model.string)
+    post.old = as.numeric(model.dict[idx,2])
   }
-
+  
   # propose new gamma
   step.new = proposal.dist(par$gam)
   gam.new = step.new$gam.proposal
   log.q = step.new$lograt
   par.new$gam = gam.new
-
-  # check if new model is in dictionary (optimized: use environment for O(1) lookup)
+  
   new.model.string = paste0(gam.new, collapse="")
-  if (!exists(new.model.string, envir = model.dict, inherits = FALSE)){
+  if (!(new.model.string %in% model.dict[,1])){
     post.new = target.dist(par.new,data=data)
-    assign(new.model.string, post.new, envir = model.dict)
+    model.dict[nrow(model.dict)+1,] <<- c(new.model.string,post.new)
   }else{
-    post.new = get(new.model.string, envir = model.dict)
+    idx = which(model.dict[,1] == new.model.string)
+    post.new = as.numeric(model.dict[idx,2])
   }
   
   # accept probability
@@ -348,38 +348,40 @@ MH.step.fixed <- function(target.dist, proposal.dist, par, data,...){
   return(list(par = par.out, acc = acc.prob, postprob = postprob))
 }
 
-BVS.MCMC <- function(model.par, mcmc.par,
-                     gprior.mat = "LCM", gamprior = "default",
-                     verbose = T, use_cpp = FALSE){
+BVS.MCMC <- function(model.par, mcmc.par, 
+                     gprior.mat = "LCM", gamprior = "default", 
+                     null.model = FALSE,
+                     verbose = T){
   ##### Useful Arguments #####
   # gamprior = c("unif", "default", "custom")
   # gprior.mat = c("LCM", "LCM-hyper", "product")
-  #     "LCM-hyper": robust prior OR hyper g/n for g. To use the hyper g/n prior,
-  #                 set 2 < a_g <= 4 in model.par$inits. Otherwise robust prior is used.
-  # use_cpp = TRUE to use C++ optimizer (requires Rcpp, RcppArmadillo, RcppEigen, RcppNumerical)
-
-  ##### C++ Setup #####
-  USE_CPP <<- use_cpp
-  if (use_cpp) {
-    if (!requireNamespace("Rcpp", quietly = TRUE)) {
-      warning("Rcpp not available, falling back to pure R")
-      USE_CPP <<- FALSE
-    } else {
-      # Compile C++ code if not already loaded
-      if (!exists("mle_gh_cpp")) {
-        if (verbose) cat("Compiling C++ optimizer...\n")
-        Rcpp::sourceCpp("src/optimizer_cpp.cpp")
-      }
-      if (!exists("lglik_cpp")) {
-        Rcpp::sourceCpp("src/likelihood_functions.cpp")
-      }
-      if (verbose) cat("Using C++ optimizer\n")
-    }
-  }
-
+  # "LCM-hyper": robust prior OR hyper g/n for g. To use the hyper g/n prior,
+  #             set 2 < a_g <= 4 in model.par$inits. Otherwise robust prior is used.
+  # null.model: admit the null model (i.e. baseline only) into the model space. 
+  
   ##### Initialization #####
   inits <- model.par$inits
   data <- model.par$data
+  
+  for (nm in c("x", "xt")){
+    if (is.null(dim(data[[nm]]))){
+      warning("data$", nm, " is a vector; coercing to a one-column matrix. ",
+              "Pass x/xt as matrices, e.g. matrix(v, ncol = 1).", call. = FALSE)
+      data[[nm]] <- as.matrix(data[[nm]])
+    }else if (!is.matrix(data[[nm]])){
+      warning("data$", nm, " is a ", class(data[[nm]])[1],
+              "; coercing with as.matrix().", call. = FALSE)
+      data[[nm]] <- as.matrix(data[[nm]])
+    }
+    if (!is.numeric(data[[nm]])){
+      stop("data$", nm, " must be numeric; got ", typeof(data[[nm]]),
+           ". Convert factor/character columns to numeric first.", call. = FALSE)
+    }
+  }
+  
+  # read by targetdist() in the sourced g-prior file
+  admit.null <<- isTRUE(null.model)
+  
   inits$g <- nrow(data$x)*inits$g
   data$xt2 = t(data$xt)%*%data$xt; data$x2 = t(data$x)%*%data$x
   data$xt2.inv = solve(data$xt2); data$x2.inv = solve(data$x2)
@@ -405,10 +407,8 @@ BVS.MCMC <- function(model.par, mcmc.par,
   #colnames(marg.liks) <<- c("model","MAP","marg.lik")
   gam.proposal = ADS.proposal.aft
   
-  # Optimized: pre-allocate model.dict as an environment for O(1) lookup
-  # Using environment instead of data.frame for faster key-value access
-  model.dict <<- new.env(hash = TRUE, size = 10000L)
-  model.dict.list <<- list()  # For final output conversion
+  model.dict <<- data.frame(matrix(NA, nrow=0, ncol=2))
+  colnames(model.dict) <<- c("gam","postprob")
   MH.step = MH.step.fixed
   if (gprior.mat == "LCM"){
     source("utils/EB_gprior_fixed.R")
@@ -462,18 +462,11 @@ BVS.MCMC <- function(model.par, mcmc.par,
   # model.accepted = names(unlist(model.dict)) %in% names(modelfreq)
   # modelprob$accept = 1*model.accepted
   
-  # Convert environment back to data.frame for output
-  model.dict.df <- data.frame(
-    gam = ls(model.dict),
-    postprob = sapply(ls(model.dict), function(x) get(x, envir = model.dict)),
-    stringsAsFactors = FALSE
-  )
-
   return(list(chain = chain.list,
-              acc = acc.list, modelsize = modelsize.df,
-              PIP = PIP(chain.list), hazPIP = haz.freq(haz.list),
-              model.freq = modelfreq,
-              model.prob = model.dict.df,
+              acc = acc.list, modelsize = modelsize.df, 
+              PIP = PIP(chain.list), hazPIP = haz.freq(haz.list), 
+              model.freq = modelfreq, 
+              model.prob = model.dict,
               post.prob = model.postprob(chain.list,postprob.list)))
 }
 
@@ -540,6 +533,8 @@ prior.gam = function(par4, log=T, type = gamprior,
           pi.gam.layer2 = log(layer2.mulnom.par[2])
         }else if (curr.model == "AH"){
           pi.gam.layer2 = log(layer2.mulnom.par[1])
+        }else{  # Null: no hazard structure is chosen, layer 1 alone carries it
+          pi.gam.layer2 = 0
         }
         pi.gam = pi.gam.layer2
       }

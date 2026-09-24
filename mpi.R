@@ -13,7 +13,7 @@ library(RcppArmadillo)
 
 ################################################################################
 source("./utils/helper_functions.R")
-n.vec = c(250,500,1000) # eff.n = n-rho*cens, rho=1: only uncensored
+n.vec = c(250,500,1000)
 p = 10
 n.simset = 250
 censrat = c("0.25default","0.5default")
@@ -64,7 +64,6 @@ tic(msg="###########################\nTotal time elapsed")
 results_parallel <- foreach(idx = 1:nrow(sim_indices), 
                             .packages = c("mvtnorm", "survival", "glmnet", "tictoc","RcppArmadillo","Rcpp"),
                             .combine = 'list', 
-                            .multicombine = TRUE,
                             .options.RNG = 1234) %dorng% {
                               # Extract indices
                               i <- sim_indices$i[idx]
@@ -103,7 +102,7 @@ results_parallel <- foreach(idx = 1:nrow(sim_indices),
                               
                               # Run sampler
                               start_time_sampler <- Sys.time()
-                              tryCatch({chains = BVS.MCMC(modelpar, mcmcpar, verbose = F, use_cpp = FALSE,
+                              tryCatch({chains = BVS.MCMC(modelpar, mcmcpar, verbose = F,
                                                           gprior.mat = priorstr, gamprior = "default")
                               end_time_sampler <- Sys.time()
                               sampler_runtime <- as.numeric(difftime(end_time_sampler, start_time_sampler, units = "secs"))
