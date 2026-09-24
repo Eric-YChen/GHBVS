@@ -7,47 +7,6 @@ lBeta = function(...){  # log of Multivariate Beta function
   return(sum(lgamma(a)) - lgamma(sum(a)))
 }
 
-# Helper function to parse parameter vector and update pars object
-# Reduces code duplication across EB_gprior_fixed.R, EB_gprior_robust.R, gprior_setup_fixed.R
-parse_par_vec <- function(par.vec, pars, data2) {
-  pxt <- ncol(data2$xt)
-  px <- ncol(data2$x)
-  theta.keep <- as.logical(pars$gam == 1 | pars$gam == 3 | pars$gam == 4)
-  eta.keep <- as.logical(pars$gam == 2 | pars$gam == 3)
-  ptheta <- sum(theta.keep)
-  peta <- sum(eta.keep)
-
-  pars$nu <- par.vec[1]
-  pars$theta0 <- par.vec[2]
-
-  if (ptheta == 0) {
-    pars$theta <- rep(0, pxt)
-    etas <- eta.keep
-    etas[etas == 1] <- par.vec[(3 + ptheta):(2 + ptheta + peta)]
-    pars$eta <- etas
-  } else if (peta == 0) {
-    pars$eta <- rep(0, px)
-    thetas <- theta.keep
-    thetas[thetas == 1] <- par.vec[3:(2 + ptheta)]
-    pars$theta <- thetas
-  } else {
-    thetas <- theta.keep
-    thetas[thetas == 1] <- par.vec[3:(2 + ptheta)]
-    etas <- eta.keep
-    etas[etas == 1] <- par.vec[(3 + ptheta):(2 + ptheta + peta)]
-    pars$theta <- thetas
-    pars$eta <- etas
-  }
-
-  list(
-    pars = pars,
-    theta.keep = theta.keep,
-    eta.keep = eta.keep,
-    ptheta = ptheta,
-    peta = peta
-  )
-}
-
 # Posterior Inclusion Probabilities
 PIP = function(chains){
   chain.long = do.call(rbind,chains)
@@ -210,22 +169,22 @@ robust.g <- function(n, p, n_samples=1) {
 
 
 metrics <- function(gam, tru.gam){  # consider time & hazard part separately!!
-    if (is.character(gam)){
-      gam = as.numeric(strsplit(gam,split="")[[1]])
-    }
-    if (is.character(tru.gam)){
-      tru.gam = as.numeric(strsplit(tru.gam,split="")[[1]])
-    }
-    TP = sum(gam !=0 & tru.gam !=0)
-    TN = sum(gam == 0 & tru.gam == 0)
-    FP = sum(gam != 0 & tru.gam == 0)
-    FN = sum(gam == 0 & tru.gam != 0)
-    Spec = TN/(FP + TN)
-    Sens = TP/(TP + FN)
-    FDR = FP/(TP + FP)
-    n = length(gam)
-    phi = (TP*TN - FP*FN)/sqrt((TP + FP)*(TP + FN)*(TN + FP)*(TN + FN))
-    return(data.frame(Sens = Sens, Spec = Spec, FDR = FDR, phi = phi))
+  if (is.character(gam)){
+    gam = as.numeric(strsplit(gam,split="")[[1]])
+  }
+  if (is.character(tru.gam)){
+    tru.gam = as.numeric(strsplit(tru.gam,split="")[[1]])
+  }
+  TP = sum(gam == tru.gam & tru.gam !=0)
+  TN = sum(gam == tru.gam & tru.gam == 0)
+  FP = sum(gam != tru.gam & tru.gam == 0)
+  FN = sum(gam != tru.gam & tru.gam != 0)
+  Spec = TN/(FP + TN)
+  Sens = TP/(TP + FN)
+  FDR = FP/(TP + FP)
+  n = length(gam)
+  phi = (TP*TN - FP*FN)/sqrt((TP + FP)*(TP + FN)*(TN + FP)*(TN + FN))
+  return(data.frame(Sens = Sens, Spec = Spec, FDR = FDR, phi = phi))
 }
 
 gam2haz = function(gam){
@@ -247,7 +206,7 @@ gam2haz = function(gam){
   }
 }
 
-simdat <- function(n,p,mu = rep(0,p),sigma = diag(p), theta = "default",
+simdat <- function(n,p,mu = rep(0,p),sigma = diag(p), theta = "default", noise.sd = 0,
                    beta = c(1, -1, 0.25, -0.25, rep(0,p-4)), 
                    beta_t = c(1, 0.25, -1, -0.25, rep(0,p-4)), 
                    beta_h = c(0.25, -1, -0.25, 1, rep(0,p-4)),
@@ -329,7 +288,8 @@ simdat <- function(n,p,mu = rep(0,p),sigma = diag(p), theta = "default",
       dat <- simGH(seed = seeds[i], n = n, des = X, theta = theta,
                    beta = beta, hstr = hstr, baseline = baseline)
     }
-
+    dat <- dat + rnorm(n, 0, noise.sd)
+    dat <- pmax(dat, 1e-6)  # avoid 0 survival time
     if (cens <= 1){
       cens = quantile(dat, max(min(cens + runif(1, -0.05, 0.05), 1), 0.01))
     }
@@ -428,8 +388,10 @@ step.GH <- function(data, x.coefs = NULL, crit = "BIC"){
     # Perform one step of forward selection
     step.result <- onestep.vs(xt.incl, data, x.coefs, crit)
     
+    #print(step.result$crit-current.crit)
     # Check if we got an improvement
     if ((step.result$crit < current.crit) & (!is.nan((step.result$crit-current.crit)/current.crit)) & (abs((step.result$crit-current.crit)/current.crit) > 1e-3)){
+      # Find which variable was added
       added_var <- which(step.result$xt.incl != xt.incl)[1]
       
       # Update tracking

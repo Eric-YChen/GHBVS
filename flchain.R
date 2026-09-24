@@ -21,7 +21,7 @@ dat <- list(x=X, xt=X, status=status, y=times)
 ##### Proposed Method #####
 ########################################################
 source("ADS_sampler.R")
-mcmcpar <- list(n.iter = 50000, n.burnin = 10000, n.thin = 10, 
+mcmcpar <- list(n.iter = 10000, n.burnin = 5000, n.thin = 2, 
                 n.chain = 1, printevery = 2000)
 modelpar = list(inits = list(nu=rnorm(1), theta0=rnorm(1),
                              theta=rnorm(ncol(dat$xt),0,0.5), eta=rnorm(ncol(dat$x),0,0.5),
@@ -43,4 +43,3 @@ chains = BVS.MCMC(modelpar, mcmcpar, verbose = T,
 print(chains$PIP)
 print(chains$model.freq[1:10])  # Model PP based on proportion of MCMC visits
 print(chains$post.prob[1:10,])  # Model PP estimated from the visited models
-
