@@ -40,7 +40,7 @@ GHBVS/
 The main function is `BVS.MCMC()`. 
 
 For the simulation study, `mpi.R` is for reproducing exact results on multi-core CPU(s) with mpi available.
-`simulation.R` is a demonstration only. Hyperparameters for priors and the sampler can be adjusted via the
+`simulation_demo.R` is a demonstration only. Hyperparameters for priors and the sampler can be adjusted via the
 function arguments — see comments within the scripts for guidance.
 
 ## Data applications
