@@ -25,9 +25,8 @@ install.packages(c("survival", "mvtnorm", "glmnet"))
 
 ```
 GHBVS/
-├── BVS.MCMC.R          # Core MCMC function for joint variable and
-│                       #   hazard structure selection
-├── simulation.R        # Example simulation code
+├── ADS_sampler.R       # Core MCMC functions
+├── simulation_demo.R   # Example simulation code
 ├── mpi.R               # RNG stream controls for reproducible simulation results
 ├── flchain.R           # Real data application: FLC (flchain) dataset
 ├── nki70.R             # Real data application: NKI70 breast cancer dataset
