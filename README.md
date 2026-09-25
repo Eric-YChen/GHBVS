@@ -15,7 +15,7 @@ Standard Bayesian variable selection approaches for survival data typically assu
 The following R packages are required:
 
 ```r
-install.packages(c("survival", "mvtnorm"))
+install.packages(c("survival", "mvtnorm", "glmnet"))
 ```
 
 > Verify exact dependencies against the `library()` calls at the top of each
