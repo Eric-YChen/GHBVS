@@ -1,4 +1,4 @@
-### Exact reproduction of the results in the manuscript
+# Exact reproduction of the results in the manuscript
 
 **Simulation:** MPI is required for all simulation scripts.
 
