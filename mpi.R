@@ -1,6 +1,6 @@
 print("current wd:")
 print(getwd())
-source("./HazReg/routines.R")
+library(HazReg)
 library(mvtnorm)
 library(survival)
 library(glmnet)
