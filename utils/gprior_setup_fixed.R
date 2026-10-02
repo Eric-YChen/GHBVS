@@ -2,40 +2,6 @@
 # prior settings for fixed-g
 ################################################################################
 
-# Efficient parameter parsing function (no caching - simpler and more robust)
-parse_par_vec_fast <- function(par.vec, otherpar, data2) {
-  pars <- otherpar
-  pxt <- ncol(data2$xt)
-  px <- ncol(data2$x)
-
-  # Pre-compute logical vectors once
-  theta.keep <- (pars$gam == 1L) | (pars$gam == 3L) | (pars$gam == 4L)
-  eta.keep <- (pars$gam == 2L) | (pars$gam == 3L)
-  ptheta <- sum(theta.keep)
-  peta <- sum(eta.keep)
-
-  pars$nu <- par.vec[1L]
-  pars$theta0 <- par.vec[2L]
-
-  if (ptheta == 0L) {
-    pars$theta <- rep(0, pxt)
-    pars$eta <- replace(as.numeric(eta.keep), eta.keep, par.vec[3L:(2L + peta)])
-  } else if (peta == 0L) {
-    pars$eta <- rep(0, px)
-    pars$theta <- replace(as.numeric(theta.keep), theta.keep, par.vec[3L:(2L + ptheta)])
-  } else {
-    pars$theta <- replace(as.numeric(theta.keep), theta.keep, par.vec[3L:(2L + ptheta)])
-    pars$eta <- replace(as.numeric(eta.keep), eta.keep, par.vec[(3L + ptheta):(2L + ptheta + peta)])
-  }
-
-  list(
-    pars = pars,
-    theta.keep = theta.keep,
-    eta.keep = eta.keep,
-    out.keep = c(TRUE, TRUE, theta.keep, eta.keep)
-  )
-}
-
 lgprior = function(par, data, data.subbed = F){
   if (!data.subbed){
     data = data.gamma(par,data)
@@ -72,7 +38,7 @@ gradprior = function(par, data, data.subbed = F){
     data = data.gamma(par,data)
   }
   par = par.gamma(par)
-  n = ifelse(is.null(nrow(data$xt)), nrow(data$x), nrow(data$xt))
+  n = length(data$y)
   x2 = data$x2; xt2 = data$xt2
   pxt = ncol(data$xt); px = ncol(data$x)
   theta = par$theta; eta = par$eta
@@ -97,7 +63,7 @@ hessprior = function(par, data, data.subbed = F){
     data = data.gamma(par,data)
   }
   par = par.gamma(par)
-  n = ifelse(is.null(nrow(data$xt)), nrow(data$x), nrow(data$xt))
+  n = length(data$y)
   x2 = data$x2; xt2 = data$xt2
   pxt = ncol(data$xt); px = ncol(data$x)
   
@@ -114,7 +80,7 @@ hessprior = function(par, data, data.subbed = F){
   pxt = ifelse(is.null(pxt), 0, pxt)
   px = ifelse(is.null(px), 0, px)
   
-  HESS <- as.matrix(rbind(rbind(c(hess.nu, 0, rep(0,pxt), rep(0,px))),
+  HESS <-  as.matrix(rbind(rbind(c(hess.nu, 0, rep(0,pxt), rep(0,px))),
                            rbind(c(0, hess.theta0, rep(0,pxt), rep(0,px))),
                            if(pxt==0){numeric(0)}else{cbind(cbind(rep(0,pxt)), cbind(rep(0,pxt)), hess.theta, matrix(0,nrow=pxt,ncol=px))},
                            if(px==0){numeric(0)}else{cbind(cbind(rep(0,px)), cbind(rep(0,px)), matrix(0,nrow=px,ncol=pxt), hess.eta)}))
@@ -123,26 +89,94 @@ hessprior = function(par, data, data.subbed = F){
 
 neg.post = function(par.vec,otherpar,data2,data2.sub,
                     lglik2=lglik,lgprior2=lgprior,...){
-  parsed <- parse_par_vec_fast(par.vec, otherpar, data2)
-  pars <- parsed$pars
+  pars = otherpar
+  pxt = ncol(data2$xt); px = ncol(data2$x)
+  theta.keep = as.logical(pars$gam == 1 | pars$gam == 3 | pars$gam == 4)
+  eta.keep = as.logical(pars$gam == 2 | pars$gam == 3)
+  ptheta = sum(theta.keep)
+  peta = sum(eta.keep)
+  pars$nu = par.vec[1]; pars$theta0 = par.vec[2]
+  if (ptheta == 0){
+    pars$theta = rep(0,pxt)
+    etas = eta.keep
+    etas[etas==1] = par.vec[seq_len(peta)+2+ptheta]
+    pars$eta = etas
+  }else if (peta == 0){
+    pars$eta = rep(0,px)
+    thetas = theta.keep
+    thetas[thetas==1] = par.vec[seq_len(ptheta)+2]
+    pars$theta = thetas
+  }else{
+    thetas = theta.keep
+    thetas[thetas==1] = par.vec[seq_len(ptheta)+2]
+    etas = eta.keep
+    etas[etas==1] = par.vec[seq_len(peta)+2+ptheta]
+    pars$theta = thetas; pars$eta = etas
+  }
+
   return(-lglik2(pars,data2) - lgprior2(pars, data2.sub, data.subbed = T))
 }
 
 grad.post = function(par.vec,otherpar,data2,data2.sub,
                      gradlglik=gradLLS,gradlgprior=gradprior,...){
-  parsed <- parse_par_vec_fast(par.vec, otherpar, data2)
-  pars <- parsed$pars
-  out.keep <- parsed$out.keep
+  pars = otherpar
+  pxt = ncol(data2$xt); px = ncol(data2$x)
+  theta.keep = as.logical(pars$gam == 1 | pars$gam == 3 | pars$gam == 4)
+  eta.keep = as.logical(pars$gam == 2 | pars$gam == 3)
+  ptheta = sum(theta.keep)
+  peta = sum(eta.keep)
+  pars$nu = par.vec[1]; pars$theta0 = par.vec[2]
+  if (ptheta == 0){
+    pars$theta = rep(0,pxt)
+    etas = eta.keep
+    etas[etas==1] = par.vec[seq_len(peta)+2]
+    pars$eta = etas
+  }else if (peta == 0){
+    pars$eta = rep(0,px)
+    thetas = theta.keep
+    thetas[thetas==1] = par.vec[seq_len(ptheta)+2]
+    pars$theta = thetas
+  }else{
+    thetas = theta.keep
+    thetas[thetas==1] = par.vec[seq_len(ptheta)+2]
+    etas = eta.keep
+    etas[etas==1] = par.vec[seq_len(peta)+2+ptheta]
+    pars$theta = thetas; pars$eta = etas
+  }
+  out.keep = c(T,T,theta.keep,eta.keep)
   out <- -gradlglik(pars,data2)[out.keep] - gradlgprior(pars, data2.sub, data.subbed = T)
   return(out)
 }
 
 hess.post = function(par.vec,otherpar,data2,data2.sub,
                      hesslglik=hessLLS,hesslgprior=hessprior,...){
-  parsed <- parse_par_vec_fast(par.vec, otherpar, data2)
-  pars <- parsed$pars
-  idx.keep <- parsed$out.keep
-  out <- -hesslglik(pars,data2)[idx.keep,idx.keep] - hesslgprior(pars, data2.sub, data.subbed = T)
+  pars = otherpar
+  pxt = ncol(data2$xt); px = ncol(data2$x)
+  theta.keep = as.logical(pars$gam == 1 | pars$gam == 3 | pars$gam == 4)
+  eta.keep = as.logical(pars$gam == 2 | pars$gam == 3)
+  ptheta = sum(theta.keep)
+  peta = sum(eta.keep)
+  pars$nu = par.vec[1]; pars$theta0 = par.vec[2]
+  if (ptheta == 0){
+    pars$theta = rep(0,pxt)
+    etas = eta.keep
+    etas[etas==1] = par.vec[seq_len(peta)+2+ptheta]
+    pars$eta = etas
+  }else if (peta == 0){
+    pars$eta = rep(0,px)
+    thetas = theta.keep
+    thetas[thetas==1] = par.vec[seq_len(ptheta)+2]
+    pars$theta = thetas
+  }else{
+    thetas = theta.keep
+    thetas[thetas==1] = par.vec[seq_len(ptheta)+2]
+    etas = eta.keep
+    etas[etas==1] = par.vec[seq_len(peta)+2+ptheta]
+    pars$theta = thetas; pars$eta = etas
+  }
+  cols.keep = c(T,T,theta.keep,eta.keep)
+  rows.keep = cols.keep
+  out <- -hesslglik(pars,data2)[rows.keep,cols.keep] - hesslgprior(pars, data2.sub, data.subbed = T)
   return(out)
 }
 
@@ -164,7 +198,12 @@ lapprox.margin.likelihood <- function(par1, data1,
   # Calculate MAP with nlminb
   result <- nlminb(start=rep(0,D), otherpar=par1, data2.sub = data1.sub,
                   data2=data1, control = list(iter.max = laplace.iter.max),
-                  objective=neg.post, gradient=grad.post, hessian=hess.post)
+                  objective=neg.post, gradient=grad.post, hessian=hess.post
+                  #lgprior2 = logprior,lglik2 = loglik,
+                  #gradlglik = grad.lik, gradlgprior = grad.prior,
+                  #hesslglik = hess.lik, hesslgprior = hess.prior
+  )
+
   
   # store number of GD iterations
   if (!exists(quote(itervec))){
@@ -177,13 +216,13 @@ lapprox.margin.likelihood <- function(par1, data1,
   MAP0 = list(nu=MAP[1], theta0 = MAP[2], theta = theta.keep, eta = eta.keep)
   if (ptheta == 0){
     MAP0$theta = rep(0,pxt)
-    MAP0$eta[eta.keep==1] = MAP[3:(2+peta)]
+    MAP0$eta[eta.keep==1] = MAP[seq_len(peta)+2]
   }else if (peta == 0){
     MAP0$eta = rep(0,px)
-    MAP0$theta[theta.keep==1] = MAP[3:(2+ptheta)]
+    MAP0$theta[theta.keep==1] = MAP[seq_len(ptheta)+2]
   }else{
-    MAP0$theta[theta.keep==1] = MAP[3:(2+ptheta)]
-    MAP0$eta[eta.keep==1] = MAP[(3+ptheta):(2+ptheta+peta)]
+    MAP0$theta[theta.keep==1] = MAP[seq_len(ptheta)+2]
+    MAP0$eta[eta.keep==1] = MAP[seq_len(peta)+2+ptheta]
   }
   MAP = MAP0
   
