@@ -1,0 +1,109 @@
+---
+title: "BVSGH: ipilimumab trial"
+output: html_document
+---
+
+This example uses the reconstructed overall survival data of the CA184-043 trial 
+(Supplementary Section 1). The full analysis, including exact posterior probabilities by
+enumeration and Figure S1, is in `real_application/ipilimumab.R`.
+
+```{r setup, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(comment = "", fig.width = 7, fig.height = 4.5)
+BVS_CORE <- normalizePath("./core")
+library(mvtnorm); library(survival); library(glmnet)
+source(file.path(BVS_CORE, "ADS_sampler.R"))
+source(file.path(BVS_CORE, "utils", "map_estimates.R"))
+source("real_application/prepare_data.R")
+
+role <- c("1" = "^time", "2" = "^haz", "3" = "", "4" = "")
+label <- function(s, vars) {
+  g <- strsplit(s, "")[[1]]; i <- which(g != "0")
+  if (!length(i)) return("null")
+  paste0("{", paste0(vars[i], role[g[i]], collapse = ", "), "}^", gam2haz(s))
+}
+```
+
+## Data and standard analyses
+
+```{r data}
+S <- prep.ipilimumab(file = "real_application/data/CA184043_2A.csv")  # S$df: data frame; S$dat: input for BVS.MCMC
+c(n = nrow(S$df), events = sum(S$df$status))
+summary(coxph(Surv(time, status) ~ trt, data = S$df))$coefficients
+summary(survreg(Surv(time, status) ~ trt, data = S$df, dist = "lognormal"))$table["trt", ]
+```
+
+Neither the Cox PH model nor the log-normal AFT model detects a treatment effect.
+
+## Proposed method
+
+The model space is either the whole GH family or restricted to PH or AFT models, through the
+weights $h = (h_{AH}, h_{PH}, h_{GH}, h_{AFT})$ of the model-space prior (`gamprior = "custom"`).
+With one covariate there are only five models, all of which the sampler
+evaluates, so the probabilities are exact.
+
+```{r run}
+spaces <- list(GH = c(1, 1, 1, 1), 
+               PH = c(0, 1, 0, 0), 
+               AFT = c(0, 0, 0, 1))
+fit.space <- function(dat, h) {
+  p <- ncol(dat$x)
+  modelpar <- list(inits = list(nu = 0, theta0 = 0, 
+                                theta = rep(0, p), eta = rep(0, p),
+                                g = 1, a_g = NULL, gam = rep(0, p), 
+                                nu.alpha = 0.01, nu.beta = 0.01),
+                   gam.param = list(layer1.betabin.par = c(1, 1), layer2.mulnom.par = h, layer3.beta.par = 1/3),
+                   data = dat)
+  BVS.MCMC(modelpar, list(n.iter = 5000, n.burnin = 1000, n.thin = 2, n.chain = 1, printevery = 1e9),
+           gprior.mat = "LCM", gamprior = "custom", verbose = FALSE)
+}
+set.seed(1)
+fits <- lapply(spaces, function(h) fit.space(S$dat, h))
+lapply(fits, function(f)
+  data.frame(model = sapply(f$post.prob$Vars, label, vars = "trt"), prob = round(f$post.prob$prob, 3),
+             row.names = NULL))
+```
+
+Posterior probability that treatment enters the model under each hazard structure assumption:
+
+```{r peffect}
+sapply(fits, function(f) round(sum(f$post.prob$prob[f$post.prob$Vars != "0"]), 3))
+```
+
+Restricted to PH or AFT models, the null model is preferred; with the hazard structure selected
+jointly, the treatment effect is detected through a time-level (AH) effect, which allows the
+survival curves to cross. The estimated posterior distribution of the hazard structures under the GH
+model space is:
+
+```{r ghhaz}
+round(fits$GH$haz.post,3)
+```
+
+## Fitted survival curves
+
+Kaplan-Meier estimates and the survival functions of the top model of the joint analysis, at its
+MAP estimates:
+
+```{r plot}
+gam.top <- as.integer(fits$GH$post.prob$Vars[1])
+M <- map.lcm(gam.top, S$dat)
+km <- survfit(Surv(time, status) ~ trt, data = S$df)
+plot(km, col = c("steelblue", "darkorange"), xlab = "Months", ylab = "Overall survival")
+tt <- seq(0.1, max(S$df$time), length.out = 200)
+for (x in 0:1) lines(tt, S.gh.lnorm(tt, x, M$mu, M$sigma, M$alpha, M$beta),
+                     col = c("steelblue", "darkorange")[x + 1], lwd = 3)
+legend("topright", c("placebo", "ipilimumab"), col = c("steelblue", "darkorange"), lwd = 3, bty = "n")
+```
+
+## Adding a noise covariate
+
+With an irrelevant standard normal covariate added (`noise = TRUE`), the joint analysis still
+includes the treatment, while the restricted analyses do not:
+
+```{r noise}
+S2 <- prep.ipilimumab(noise = TRUE, file = "real_application/data/CA184043_2A.csv")
+fits2 <- lapply(spaces, function(h) fit.space(S2$dat, h))
+sapply(fits2, function(f) {
+  G <- do.call(rbind, lapply(strsplit(f$post.prob$Vars, ""), as.integer))
+  round(setNames(colSums(f$post.prob$prob * (G != 0)), colnames(S2$dat$x)), 3)
+})
+```

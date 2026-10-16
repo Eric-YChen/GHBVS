@@ -1,0 +1,86 @@
+---
+title: "BVSGH: NKI70 data"
+output: html_document
+---
+
+This example runs the proposed method on the NKI70 breast cancer data (main text Section 7.2):
+$n = 144$, $p = 75$ covariates (5 clinical risk factors and 70 genes) and a high censoring rate.
+The paper pools 10 chains of 110,000 iterations per prior (`real_application/nki_proposed.R`, summarised by `real_application/nki_summary.R`); here two chains of 3,000 iterations under the LCM prior are pooled (about three minutes), so the probabilities are only approximate. The reference methods (mombf and BVSNLP) are run by `real_application/nki_reference.R`.
+
+```{r setup, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(comment = "")
+BVS_CORE <- normalizePath("./core")
+library(mvtnorm); library(survival); library(glmnet)
+source(file.path(BVS_CORE, "ADS_sampler.R"))
+source("real_application/prepare_data.R")
+
+role <- c("1" = "^time", "2" = "^haz", "3" = "", "4" = "")
+label <- function(s, vars) {
+  g <- strsplit(s, "")[[1]]; i <- which(g != "0")
+  if (!length(i)) return("null")
+  paste0("{", paste0(vars[i], role[g[i]], collapse = ", "), "}^", gam2haz(s))
+}
+```
+
+## Data
+
+```{r data}
+dat <- prep.nki(file = "real_application/data/nki70.csv")
+vars <- colnames(dat$x)
+c(n = nrow(dat$x), p = ncol(dat$x), events = sum(dat$status), censored = round(1 - mean(dat$status), 3))
+```
+
+## Running the sampler
+
+Each chain starts from its own initial model (Cox-LASSO with at most $n_o/5$ variables, then
+stepwise selection). The chains are run one after another: `BVS.MCMC` keeps its state in global
+variables, so chains must not run in parallel within one R session.
+
+```{r run}
+run.chain <- function(seed) {
+  set.seed(seed)
+  modelpar <- list(inits = list(nu = rnorm(1), theta0 = rnorm(1),
+                                theta = rnorm(ncol(dat$xt), 0, 0.5), eta = rnorm(ncol(dat$x), 0, 0.5),
+                                g.theta = 1, g.eta = 1, g = 1, a_g = NULL,
+                                gam = suppressWarnings(init.gam(dat, history.keep = FALSE)),
+                                nu.alpha = 0.01, nu.beta = 0.01),
+                   data = dat)
+  BVS.MCMC(modelpar, list(n.iter = 3000, n.burnin = 500, n.thin = 5, n.chain = 1, printevery = 1e9),
+           gprior.mat = "LCM", # or "Product"
+           gamprior = "default", verbose = FALSE)
+}
+fits <- lapply(1:2, run.chain)
+```
+
+Model probabilities are renormalised over all models evaluated by the chains, and then summarised by hazard structure and covariate:
+
+```{r pool}
+mp <- do.call(rbind, lapply(fits, `[[`, "model.prob"))
+mp <- mp[!duplicated(mp$gam) & is.finite(mp$postprob), ]
+pp <- model.postprob.dict(mp$gam, mp$postprob)
+```
+
+## Results
+
+Top models:
+
+```{r top}
+data.frame(model = sapply(head(pp$Vars, 5), label, vars = vars), prob = round(head(pp$prob, 5), 3),
+           row.names = NULL)
+```
+
+Posterior probabilities of the hazard structures, and size of the 50% highest posterior
+probability model set:
+
+```{r hazard}
+round(haz.postprob(pp), 3)
+which(cumsum(pp$prob) >= 0.5)[1]
+```
+
+The six covariates with the largest posterior inclusion probabilities:
+
+```{r pip}
+G <- do.call(rbind, lapply(strsplit(pp$Vars, ""), as.integer))
+pip <- setNames(colSums(pp$prob * (G != 0)), vars)
+round(sort(pip, decreasing = TRUE)[1:6], 2)
+```

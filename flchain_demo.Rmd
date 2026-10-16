@@ -1,0 +1,94 @@
+---
+title: "BVSGH: FLC data"
+output: html_document
+---
+
+This example runs the proposed method on the serum free light chain data (main text Section 7.1).
+The chains here are shorter than in the paper, so the probabilities differ slightly.
+
+```{r setup, message = FALSE, warning = FALSE}
+#knitr::opts_chunk$set(comment = "")
+library(mvtnorm); library(survival); library(glmnet)
+BVS_CORE <- normalizePath("./core")
+source(file.path(BVS_CORE, "ADS_sampler.R"))
+source(file.path(BVS_CORE, "utils", "map_estimates.R"))
+source("real_application/prepare_data.R")
+
+# labeling of model string
+role <- c("1" = "^time", "2" = "^haz", "3" = "", "4" = "")
+label <- function(s, vars) {
+  g <- strsplit(s, "")[[1]]; i <- which(g != "0")
+  if (!length(i)) return("null")
+  paste0("{", paste0(vars[i], role[g[i]], collapse = ", "), "}^", gam2haz(s))
+}
+```
+
+## Data
+
+Each covariate enters the model through $\gamma_j$: 0 (excluded), 1 (time level, AH), 2 (hazard
+level, PH), 3 (both levels, GH) or 4 (AFT). `prep.flchain()` returns the response `y`, the event
+indicator `status` and the design matrices `x` (hazard level) and `xt` (time level).
+
+```{r data}
+dat <- prep.flchain("orig", file = "real_application/data/flchain.csv")  # "trans": Kappa and Lambda replaced by their sum and ratio
+vars <- colnames(dat$x)
+c(n = nrow(dat$x), p = ncol(dat$x), censored = round(1 - mean(dat$status), 3))
+```
+
+## Running the sampler
+
+The initial model comes from a Cox-LASSO fit followed by stepwise selection (`init.gam`).
+`BVS.MCMC` is run once for the selected prior on the model-specific coefficients, 
+with the default model-space prior.
+
+```{r run}
+set.seed(1234)
+modelpar <- list(inits = list(nu = rnorm(1), theta0 = rnorm(1),
+                              theta = rnorm(ncol(dat$xt), 0, 0.5), 
+                              eta = rnorm(ncol(dat$x), 0, 0.5),
+                              g.theta = 1, g.eta = 1, 
+                              g = 1, 
+                              a_g = NULL,
+                              gam = init.gam(dat, history.keep = FALSE),
+                              nu.alpha = 0.01, nu.beta = 0.01),
+                 data = dat)
+mcmcpar <- list(n.iter = 10000, n.burnin = 2000, n.thin = 10, n.chain = 1, printevery = 1e9)
+fits <- BVS.MCMC(modelpar, mcmcpar, gprior.mat = "LCM", # or "Product", "LCM-hyper"
+                 gamprior = "default", verbose = FALSE)
+```
+
+## Results
+
+`post.prob` lists every model evaluated by the sampler, with its posterior probability
+renormalised over these models.
+
+```{r top}
+pp <- head(fits$post.prob, 5)
+data.frame(model = sapply(pp$Vars, label, vars = vars), prob = round(pp$prob, 3), row.names = NULL)
+```
+
+Posterior probabilities of the hazard structures:
+
+```{r hazard}
+round(fits$haz.post, 3)
+```
+
+Posterior inclusion probabilities, overall and at the time and hazard levels:
+
+```{r pip}
+pp <- fits$post.prob
+G <- do.call(rbind, lapply(strsplit(pp$Vars, ""), as.integer))
+pip <- rbind(any = colSums(pp$prob * (G != 0)), as.matrix(fits$PIP.post))
+dimnames(pip) <- list(c("included", "time level", "hazard level"), vars)
+round(pip, 3)
+```
+
+MAP estimates of the time-level ($\alpha$) and hazard-level ($\beta$) coefficients of the top
+model:
+
+```{r map}
+gam.top <- as.integer(strsplit(pp$Vars[1], "")[[1]])
+M <- map.lcm(gam.top, dat)
+used <- gam.top != 0
+data.frame(variable = vars[used], alpha = round(M$alpha[used], 3), beta = round(M$beta[used], 3))
+```
