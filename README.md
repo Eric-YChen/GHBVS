@@ -15,7 +15,6 @@ R (>= 4.2) with the packages `mvtnorm`, `survival`, `glmnet`, `numDeriv` and `MA
 | `core/` | Extended ADS sampler and model-space prior (`ADS_sampler.R`), marginal likelihoods under the LCM and Product priors, likelihood routines and helper functions. Sourced by all other scripts. |
 | `real_application/` | FLC (`flchain.R`, `flchain_summary.R`), NKI70 (`nki_proposed.R`, `nki_reference.R`, `nki_summary.R`) and the ipilimumab trial (`ipilimumab.R`); data in `data/`. |
 | `simulation/` | Simulation studies (`sim_*.R`), summaries (`summarise_sim.R`) and figures (`make_figures.R`). |
-| `tests/` | Checks of the model-space prior, the sampler, the Laplace approximation and the likelihood derivatives. |
 
 Each script states its arguments in its first line. Run scripts from their own folder; results are
 written to `results/` within that folder.
