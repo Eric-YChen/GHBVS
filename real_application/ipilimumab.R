@@ -111,6 +111,40 @@ cat("\n-- MAP (mu, sigma, alpha, beta) under the LCM prior, treatment-only model
 print(round(t(sapply(map1, function(M) c(mu = M$mu, sigma = M$sigma, alpha = M$alpha[[1]], beta = M$beta[[1]]))), 3))
 sink()
 
+if (!quick){
+  dir.create("../tables", showWarnings = FALSE)
+  tex.model <- function(s, vars, structure){
+    g <- strsplit(s, "")[[1]]; i <- which(g != "0")
+    if (!length(i)) return("Null")
+    v <- ifelse(vars[i] == "trt", "\\textbf{trt}", vars[i])
+    paste0("\\{", paste(v, collapse = ", "), "\\}", if (structure == "GH") paste0("$^{", gam2haz(s), "}$") else "")
+  }
+  sets <- lapply(names(specs), function(s){
+    w <- sort(A2$exact[, s], decreasing = TRUE); k <- which(cumsum(w) >= 0.9)[1]
+    sprintf("%d: %s (%.3f)", 1:k, sapply(names(w)[1:k], tex.model, vars = A2$vars, structure = s), w[1:k])
+  })
+  K <- max(lengths(sets)); sets <- lapply(sets, function(x) c(x, rep("", K - length(x))))
+  hpm <- sapply(seq_len(K), function(k) paste(c(if (k == 1) sprintf("\\multirow{%d}{*}{90\\%% HPM set}", K) else "",
+                                                 sapply(sets, `[`, k)), collapse = " & "))
+  pip <- paste(c("$(\\text{PIP}_\\text{trt},\\text{PIP}_\\text{spur})$",
+                 sapply(names(specs), function(s) sprintf("$(%.3f,%.3f)$", A2$pip["trt", s], A2$pip["spur", s]))), collapse = " & ")
+  writeLines(c("\\begin{table}[h]", "\\centering",
+    paste0("\\caption{$90\\%$ highest probability models sets and posterior inclusion probabilities of the variables under each ",
+           "hazard structure assumption using the proposed methodology under LCM prior. }"),
+    "\\label{tab:motiv_hpm}", "\\begin{tabular}{@{}cccc@{}}", "\\toprule",
+    "Summary & GH & PH & AFT \\\\ \\midrule", paste(hpm, "\\\\"), "\\midrule", paste(pip, "\\\\ \\bottomrule"),
+    "\\end{tabular}", "\\end{table}"), "../tables/tab_motiv_hpm.tex")
+  cc <- summary(cox2)$coefficients; at <- summary(aft2)$table
+  writeLines(c("\\begin{table}[h]", "\\centering",
+    "\\caption{Fitted coefficients and p-values under semi-parametric PH and log-normal AFT model.}",
+    "\\label{tab:motiv_standard}", "\\begin{tabular}{@{}ccccc@{}}", "\\toprule",
+    "Model & coef$_\\text{trt}$ & p-value & coef$_\\text{spur}$ & p-value \\\\ \\midrule",
+    sprintf("Cox PH & %.3f & %.3f & %.3f & %.3f \\\\", cc["trt", "coef"], cc["trt", "Pr(>|z|)"], cc["spur", "coef"], cc["spur", "Pr(>|z|)"]),
+    sprintf("AFT & %.3f & %.3f & %.3f & %.3f \\\\ \\bottomrule", at["trt", "Value"], at["trt", "p"], at["spur", "Value"], at["spur", "p"]),
+    "\\end{tabular}", "\\end{table}"), "../tables/tab_motiv_standard.tex")
+  cat("written ../tables/tab_motiv_hpm.tex and ../tables/tab_motiv_standard.tex\n")
+}
+
 col.arm <- c(placebo = "#2a78d6", ipilimumab = "#eb6834")
 ink <- "#0b0b0b"; ink2 <- "#52514e"; rule <- "#d9d8d4"
 tr  <- function(col, a) adjustcolor(col, alpha.f = a)
@@ -136,7 +170,7 @@ fits <- list(
                 sprintf("AH %.2f, GH %.2f", A1$hz["AH", "GH"], A1$hz["GH", "GH"]))))
 draw <- function(){
   op <- par(mfrow = c(1, 3), mar = c(3.2, 3.2, 2.2, 0.6), oma = c(1.4, 0, 0, 0),
-            mgp = c(2, 0.55, 0), tcl = -0.25, cex = 0.72, col.axis = ink2, col.lab = ink, fg = ink2)
+            mgp = c(2, 0.55, 0), tcl = -0.25, cex = 0.72, col.axis = ink2, col.lab = ink, fg = ink2, family = "sans")
   on.exit(par(op))
   for (k in seq_along(fits)){
     f <- fits[[k]]
@@ -151,12 +185,17 @@ draw <- function(){
     lines(tg, f$S0(tg), col = col.arm[1], lwd = 2)
     lines(tg, f$S1(tg), col = col.arm[2], lwd = 2)
     text(tmax - 0.8, c(0.93, 0.84), f$note, adj = c(1, 1), cex = 0.88, col = ink)
+    if (k == 1){
+      text(21, 0.40, "Ipilimumab", col = ink, adj = c(0, 0), cex = 0.88)
+      text(13, 0.17, "Placebo", col = ink, adj = c(0, 1), cex = 0.88)
+    }
   }
   par(fig = c(0, 1, 0, 1), oma = c(0, 0, 0, 0), mar = c(0, 0, 0, 0), new = TRUE)
   plot.new()
   legend("bottom", horiz = TRUE, bty = "n", cex = 0.85, text.col = ink,
          legend = c("Placebo", "Ipilimumab", "Kaplan-Meier (thin)", "Model fit (thick)"),
-         col = c(col.arm, tr(ink2, 0.55), ink2), lwd = c(2, 2, 1, 2), lty = 1, seg.len = 1.6)
+         col = c(col.arm, tr(ink2, 0.55), ink2), lwd = c(2, 2, 1, 2), lty = 1, seg.len = 1.6,
+         x.intersp = 0.6, text.width = NA)
 }
 pdf(file.path(res.dir, "fig_ipilimumab.pdf"), width = 7.2, height = 2.9)
 draw(); invisible(dev.off())

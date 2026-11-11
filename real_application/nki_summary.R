@@ -75,7 +75,7 @@ for (s in names(ref)){
     cat("models evaluated per run:", e$bvs.nvis, "| wall time (min):", round(as.numeric(e$time.bvs), 1), "\n")
 }
 
-cat("\n================ Table 2: rank (probability) of the top LCM models ================\n")
+cat("\n================ Table 3: rank (probability) of the top LCM models ================\n")
 rank.of <- function(probs, key, keys){
   o <- order(-probs); r <- match(key, keys[o])
   if (is.na(r)) "-" else sprintf("%d (%.3f)", r, probs[o][r])
@@ -93,3 +93,26 @@ print(tab, row.names = FALSE)
 cat("\nProduct prior, top 6 models:\n")
 print(head(P$Product$res[, c("label", "pp")], 6), row.names = FALSE)
 sink()
+
+esc <- function(x) gsub("_", "\\_", x, fixed = TRUE)
+tex.label <- function(gs, vars){
+  g <- strsplit(gs, "")[[1]]; i <- which(g != "0")
+  v <- ifelse(g[i] %in% c("1", "2"), sprintf("$\\text{%s}^{%s}$", esc(vars[i]), c("1" = "time", "2" = "haz")[g[i]]), esc(vars[i]))
+  sprintf("\\{%s$\\}^{%s}$", paste(v, collapse = ", "), gam2haz(gs))
+}
+if (res.dir == "results"){
+  dir.create("../tables", showWarnings = FALSE)
+  cox <- sprintf("%d (%.3f): \\{%s\\}", 1:6, head(ref$Cox.piMOM$prob, 6),
+                 esc(gsub(",", ", ", head(ref$Cox.piMOM$model, 6), fixed = TRUE)))
+  rows <- sprintf("%s & %s & %s & %s & %s \\\\", sapply(P$LCM$res$model[1:6], tex.label, vars = P$LCM$vars),
+                  tab$LCM, tab$Product, tab$AFT.Zellner, cox)
+  rows[6] <- paste(rows[6], "\\bottomrule")
+  writeLines(c("\\begin{table}[ht]", "\\centering",
+    paste0("\\caption{Rank of the top models, in terms of estimated posterior probability, for the proposed and reference ",
+           "methods for NKI70 data set. The superscript on the right bracket indicates model type.}"),
+    "\\label{tab:nki}", "\\resizebox{\\textwidth}{!}{%", "\\begin{tabular}{@{}cccc|c@{}}", "\\toprule",
+    paste0("Model \\textbackslash{} Rank (Posterior probability) & LCM ($g_E=1$) & Product ($g_{C_t}=g_{C_h}=1$) & ",
+           "AFT (Zellner-$g$) & Partial-Cox (piMOM) \\\\ \\midrule"),
+    rows, "\\end{tabular}%", "}", "\\end{table}"), "../tables/tab_nki.tex")
+  cat("written ../tables/tab_nki.tex\n")
+}

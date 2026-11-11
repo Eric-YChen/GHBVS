@@ -92,3 +92,9 @@ M <- map.lcm(gam.top, dat)
 used <- gam.top != 0
 data.frame(variable = vars[used], alpha = round(M$alpha[used], 3), beta = round(M$beta[used], 3))
 ```
+
+## Session Info
+
+```{r info}
+sessionInfo()
+```

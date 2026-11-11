@@ -67,7 +67,7 @@ task_main <- function(i, j, ctx) {
   gp <- gam_param(ctx, i)
   t0 <- Sys.time()
   ch <- BVS.MCMC(model_par(s$dat, init, gp), ctx$mcmcpar, verbose = FALSE,
-                 gprior.mat = ctx$prior, gamprior = if (is.null(gp)) "default" else "custom")
+                 gprior.mat = ctx$prior, gamprior = if (is.null(gp)) "default" else "custom", null.model = FALSE)
   c(list(i = i, j = j, cens_rat = s$cens_rat, init = paste0(init, collapse = "")),
     summarise_fit(ch), list(runtime = c(init = t_init, sampler = secs(t0))))
 }
@@ -101,7 +101,7 @@ task_bic <- function(i, j, ctx) {
     t0 <- Sys.time()
     r <- tryCatch({
       ch <- BVS.MCMC(model_par(s$dat, init), ctx$mcmcpar, verbose = FALSE, gprior.mat = "LCM",
-                     gamprior = ctx$methods[[m]], target = make_target_bic(cache))
+                     gamprior = ctx$methods[[m]], target = make_target_bic(cache), null.model = FALSE)
       summarise_fit(ch)
     }, error = function(e) conditionMessage(e))
     if (is.character(r)) err[m] <- r else fits[[m]] <- r
@@ -151,7 +151,7 @@ task_conv <- function(i, j, ctx) {
   for (k in seq_len(n_ch)) {
     t0 <- Sys.time()
     out <- tryCatch(BVS.MCMC(model_par(s$dat, inits[[k]]), ctx$mcmcpar, verbose = FALSE,
-                             gprior.mat = ctx$prior, gamprior = "default"),
+                             gprior.mat = ctx$prior, gamprior = "default", null.model = FALSE),
                     error = function(e) list(err = conditionMessage(e)))
     rt[k] <- secs(t0)
     if (!is.null(out$err)) { err[k] <- out$err; next }

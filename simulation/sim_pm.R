@@ -112,6 +112,15 @@ write.csv(grid, file.path(res.dir, paste0("sim_pm", suffix, ".csv")), row.names 
 
 ess.tab <- aggregate(cbind(neff.over.n = N / n) ~ cens, data = grid[grid$scaling == "calib" & !grid$active, ], FUN = mean)
 cat("\nn_eff / n by censoring level (inactive covariate):\n"); print(round(ess.tab, 3))
+if (!quick) {
+  dir.create("../tables", showWarnings = FALSE)
+  writeLines(c("\\begin{table}[h]", "\\centering", "\\caption{Value of $n_{eff}/n$ for different censoring levels.}",
+               "\\label{tab:cevs_ess}", sprintf("\\begin{tabular}{@{}c%s@{}}", strrep("c", nrow(ess.tab))), "\\toprule",
+               paste("Censoring Level &", paste(sprintf("%.3f", ess.tab$cens), collapse = " & "), "\\\\ \\midrule"),
+               paste("$n_{eff}/n$ &", paste(sprintf("%.3f", ess.tab$neff.over.n), collapse = " & "), "\\\\ \\bottomrule"),
+               "\\end{tabular}%", "\\end{table}"), "../tables/tab_cevs_ess.tex")
+  cat("written ../tables/tab_cevs_ess.tex\n")
+}
 for (sc in names(scalings)) {
   pdf(file.path(res.dir, paste0("pm_", sc, suffix, ".pdf")), width = 12, height = 6)
   op <- par(mfrow = c(length(priors), length(struct.grid)), mar = c(4, 4, 3, 1))

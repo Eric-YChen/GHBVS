@@ -33,6 +33,7 @@ hpd.set <- function(pp, level = 0.9){
 }
 
 sink(file.path(res.dir, "flchain_summary.txt"), split = TRUE)
+tabs <- list()
 for (d in c("orig", "trans")){
   vars <- colnames(res[[d]][[1]]$dat$x)
   cat("\n================ design:", d, "================\n")
@@ -46,6 +47,7 @@ for (d in c("orig", "trans")){
     tab[[paste0(p, ".in90")]] <- models %in% sets[[p]]$Vars
   }
   cat("\n-- 90% HPP sets (renormalised over all evaluated models)\n"); print(tab)
+  tabs[[d]] <- cbind(gam = models, tab)
   for (p in priors){
     ch <- res[[d]][[p]]$chains
     cat("\n--", p, "| runtime", round(as.numeric(res[[d]][[p]]$runtime), 1), "min",
@@ -77,3 +79,24 @@ cat("n =", nrow(dc), "| censored =", round(1 - mean(dc$death), 3),
 cat("cor(kappa, lambda) =", round(cor(dc$kappa, dc$lambda), 3), "\n")
 cat("cor(kappa + lambda, kappa / lambda) =", round(cor(dc$kappa + dc$lambda, dc$kappa / dc$lambda), 3), "\n")
 sink()
+
+tex.label <- function(gs, vars){
+  g <- strsplit(gs, "")[[1]]; i <- which(g != "0")
+  v <- ifelse(g[i] %in% c("1", "2"), sprintf("$\\text{%s}^{%s}$", vars[i], c("1" = "time", "2" = "haz")[g[i]]), vars[i])
+  sprintf("\\{%s$\\}^{%s}$", paste(v, collapse = ", "), gam2haz(gs))
+}
+if (res.dir == "results"){
+  dir.create("../tables", showWarnings = FALSE)
+  tb <- tabs[["orig"]]; vars <- colnames(res[["orig"]][[1]]$dat$x)
+  rows <- sprintf("%s & %.3f & %.3f & %.3f \\\\", sapply(tb$gam, tex.label, vars = vars), tb$LCM, tb$Product, tb[["LCM-hyper"]])
+  rows[length(rows)] <- paste(rows[length(rows)], "\\bottomrule")
+  writeLines(c("\\begin{table}[h]", "\\centering",
+    paste0("\\caption{The $90\\%$ highest posterior probability model credible set for each prior structure for the FLC data set. ",
+           "$haz$ in the superscript within the brackets stands for hazard-level effect only, and no superscript means the variable ",
+           "has both time-level and hazard-level effects but at a different level (\\textit{i.e.}~$\\gamma_j=3$). ",
+           "The superscript on the right bracket indicates the hazard type.}"),
+    "\\label{tab:flc-hpm}", "\\begin{tabular}{@{}cccc@{}}", "\\toprule",
+    "Model \\textbackslash{} Posterior probability & LCM ($g_E=1$) & Product ($g_{C_t}=g_{C_h}=1$) & LCM (Robust $g$) \\\\ \\midrule",
+    rows, "\\end{tabular}", "\\end{table}"), "../tables/tab_flc_hpm.tex")
+  cat("written ../tables/tab_flc_hpm.tex\n")
+}

@@ -5,7 +5,7 @@ output: html_document
 
 This example runs the proposed method on the NKI70 breast cancer data (main text Section 7.2):
 $n = 144$, $p = 75$ covariates (5 clinical risk factors and 70 genes) and a high censoring rate.
-The paper pools 10 chains of 110,000 iterations per prior (`real_application/nki_proposed.R`, summarised by `real_application/nki_summary.R`); here two chains of 3,000 iterations under the LCM prior are pooled (about three minutes), so the probabilities are only approximate. The reference methods (mombf and BVSNLP) are run by `real_application/nki_reference.R`.
+The paper pools 10 chains of 110,000 iterations per prior, while here two chains of 3,000 iterations under the LCM prior are pooled, so the probabilities are only approximate.
 
 ```{r setup, message = FALSE, warning = FALSE}
 knitr::opts_chunk$set(comment = "")
@@ -83,4 +83,10 @@ The six covariates with the largest posterior inclusion probabilities:
 G <- do.call(rbind, lapply(strsplit(pp$Vars, ""), as.integer))
 pip <- setNames(colSums(pp$prob * (G != 0)), vars)
 round(sort(pip, decreasing = TRUE)[1:6], 2)
+```
+
+## Session Info
+
+```{r info}
+sessionInfo()
 ```

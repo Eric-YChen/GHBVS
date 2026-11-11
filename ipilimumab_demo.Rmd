@@ -4,8 +4,7 @@ output: html_document
 ---
 
 This example uses the reconstructed overall survival data of the CA184-043 trial 
-(Supplementary Section 1). The full analysis, including exact posterior probabilities by
-enumeration and Figure S1, is in `real_application/ipilimumab.R`.
+(Supplementary Section 1).
 
 ```{r setup, message = FALSE, warning = FALSE}
 knitr::opts_chunk$set(comment = "", fig.width = 7, fig.height = 4.5)
@@ -106,4 +105,10 @@ sapply(fits2, function(f) {
   G <- do.call(rbind, lapply(strsplit(f$post.prob$Vars, ""), as.integer))
   round(setNames(colSums(f$post.prob$prob * (G != 0)), colnames(S2$dat$x)), 3)
 })
+```
+
+## Session Info
+
+```{r info}
+sessionInfo()
 ```

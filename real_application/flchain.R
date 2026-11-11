@@ -27,7 +27,7 @@ for (design in designs) for (prior in priors){
                    data = dat)
   cat("\n==== FLC design:", design, "| prior:", prior, "====\n")
   t0 <- Sys.time()
-  chains <- BVS.MCMC(modelpar, mcmcpar, verbose = TRUE, gprior.mat = prior, gamprior = "default")
+  chains <- BVS.MCMC(modelpar, mcmcpar, verbose = TRUE, gprior.mat = prior, gamprior = "default", null.model = FALSE)
   runtime <- difftime(Sys.time(), t0, units = "mins")
   print(runtime)
   print(head(chains$post.prob, 5))

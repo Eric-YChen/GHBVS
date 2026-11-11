@@ -44,7 +44,7 @@ run.chain <- function(chain.id){
                    data = dat)
   t0 <- Sys.time()
   chains <- tryCatch(BVS.MCMC(modelpar, mcmcpar, verbose = TRUE,
-                              gprior.mat = gprior.mat, gamprior = "default"),
+                              gprior.mat = gprior.mat, gamprior = "default", null.model = FALSE),
                      error = function(e) list(error = conditionMessage(e)))
   chains$chain.id <- chain.id
   chains$gam.init <- gam.init

@@ -27,7 +27,7 @@ res <- do.call(rbind, lapply(c("LCM", "Product"), function(pr) {
   mp <- list(inits = list(nu = rnorm(1), theta0 = rnorm(1), theta = rnorm(k, 0, 0.5), eta = rnorm(k, 0, 0.5),
                           g.theta = 1, g.eta = 1, g = 1, a_g = NULL, gam = c(4L, 4L, 0L), nu.alpha = 0.01, nu.beta = 0.01),
              gam.param = list(layer2.mulnom.par = c(0, 0, 0, 1)), data = dat)
-  ch <- BVS.MCMC(mp, mcmc, verbose = FALSE, gprior.mat = pr, gamprior = "custom")
+  ch <- BVS.MCMC(mp, mcmc, verbose = FALSE, gprior.mat = pr, gamprior = "custom", null.model = FALSE)
   pp <- ch$post.prob
   incl <- do.call(rbind, lapply(strsplit(pp$Vars, "", fixed = TRUE), function(s) s != "0"))
   cat(sprintf("\n%s prior: %d models evaluated; models and posterior probabilities:\n", pr, nrow(pp)))
@@ -39,3 +39,10 @@ res <- do.call(rbind, lapply(c("LCM", "Product"), function(pr) {
 cat("\nPIPs (Table tab:motive-ex):\n"); print(transform(res, X1 = round(X1, 3), X2 = round(X2, 3), X3 = round(X3, 3)), row.names = FALSE)
 dir.create("results", showWarnings = FALSE)
 write.csv(res, file.path("results", "sim_polarised.csv"), row.names = FALSE)
+dir.create("../tables", showWarnings = FALSE)
+rows <- sprintf("%s & %.3f & %.3f & %.3f \\\\", res$method, res$X1, res$X2, res$X3)
+rows[length(rows)] <- paste(rows[length(rows)], "\\bottomrule")
+writeLines(c("\\begin{table}[ht]", "\\centering", "\\caption{PIP for the polarised censoring time experiment.}",
+             "\\label{tab:motive-ex}", "\\begin{tabular}{@{}cccc@{}}", "\\toprule",
+             "Method & X1 & X2 & X3 \\\\ \\midrule", rows, "\\end{tabular}", "\\end{table}"), "../tables/tab_motive_ex.tex")
+cat("written ../tables/tab_motive_ex.tex\n")
